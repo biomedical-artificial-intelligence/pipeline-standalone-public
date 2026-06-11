@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Runtime artifacts
+app/input/
+app/output/
+output/
+input/
+*.db
+pipeline.db
+*.out
+
+# Local environment / secrets
+.env
+
+# Compiled Fortran helper (build from dock_src/distance_antibody.f)
+dock_src/distance_antibody
+*.o
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

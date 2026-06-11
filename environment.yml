@@ -1,0 +1,18 @@
+# Conda environment for the standalone pipeline (WITHOUT AlphaFold3).
+#
+#   conda env create -f environment.yml
+#   conda activate pipeline-standalone
+#
+# NOTE: This installs the PIPELINE's own dependencies only.
+# AlphaFold3 runs in YOUR separate environment — see README / .env.example
+# (ALPHAFOLD_PYTHON, ALPHAFOLD_SCRIPT, ...). It is intentionally NOT listed here.
+name: pipeline-standalone
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - aiosqlite
+  - python-dotenv       # load machine-specific paths from .env
+  - pymol-open-source   # CIF -> PDB conversion + pose handling
