@@ -34,6 +34,12 @@ bandit (propose CDR)  ->  AlphaFold3 (fold 2-chain antibody)  ->  ZDOCK (dock vs
 The pipeline's own Python dependencies (numpy, scipy, aiosqlite, PyMOL) are
 installed via conda — see below.
 
+**Host tools** (standard on most Linux; install if missing): `conda`/`mamba`
+(Python env), `gfortran` (builds the distance helper), and `perl` at
+`/usr/bin/perl` (ZDOCK's `create.pl`). The bundled ZDOCK binaries are Linux
+x86-64 and dynamically linked against glibc/libstdc++ (plus the bundled
+`libg2c.so.0`).
+
 ---
 
 ## 2. Install
