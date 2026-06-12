@@ -7,8 +7,15 @@ against a target antigen with **ZDOCK**, and steering the search with a
 
 This is a **standalone** build: it does **not** bundle AlphaFold3 and runs no
 web server. You install AlphaFold3 yourself and point the pipeline at it via
-environment variables. Everything runs from the command line and reads/writes
-plain files plus a small SQLite job database.
+environment variables (the ZDOCK toolkit *is* bundled, in `dock_bin/`).
+Everything runs from the command line and reads/writes plain files plus a small
+SQLite job database.
+
+> **AlphaFold3 requirement:** the pipeline calls AF3 as a normal subprocess —
+> `"$ALPHAFOLD_PYTHON" "$ALPHAFOLD_SCRIPT" --json_path=… --run_inference=true`.
+> Your AF3 must be runnable that way (a Python env where `run_alphafold.py`
+> works). Running AF3 only via a Docker image is **not** supported out of the
+> box — run this pipeline *inside* that image, or install AF3 into a venv.
 
 ```
 bandit (propose CDR)  ->  AlphaFold3 (fold 2-chain antibody)  ->  ZDOCK (dock vs antigen)  ->  score  ->  bandit
@@ -39,42 +46,55 @@ conda activate pipeline-standalone
 # 2b. Build the lab distance helper
 gfortran -O2 -o dock_src/distance_antibody dock_src/distance_antibody.f
 
-# 2c. ZDOCK is bundled in dock_bin/ (set ZDOCK_DIR=./dock_bin). Nothing to install.
-# 2d. Install AlphaFold3 separately (its own environment).
+# 2c. ZDOCK is bundled in dock_bin/ — nothing to install. Use an ABSOLUTE path
+#     for ZDOCK_DIR (the pipeline runs from app/, so a relative ./dock_bin breaks).
+# 2d. Install AlphaFold3 separately (its own environment / Docker image).
 ```
 
 ---
 
 ## 3. Configure
 
-Copy the template and edit paths for your machine:
+The repo ships a `.env` at its root that is **loaded automatically**. It
+contains sample paths from a test machine — **you must edit it for yours**
+(use absolute paths). `.env.example` documents every variable; defaults live in
+`app/config.py`.
 
 ```bash
-cp .env.example .env
-$EDITOR .env
+$EDITOR .env        # edit the committed .env in place
 ```
 
-Key variables (full list in `.env.example`, defaults in `app/config.py`):
+The variables you must set:
 
 ```bash
-# External AlphaFold3 (runs in ITS OWN environment)
+# External AlphaFold3 — must be runnable as: $ALPHAFOLD_PYTHON $ALPHAFOLD_SCRIPT ...
 ALPHAFOLD_PYTHON=/path/to/af3-venv/bin/python
 ALPHAFOLD_SCRIPT=/path/to/alphafold3/run_alphafold.py
 ALPHAFOLD_MODEL_DIR=/path/to/alphafold3/models
 ALPHAFOLD_DB_DIR=/path/to/alphafold3/databases
 
-# ZDOCK toolkit (zdock, mark_sur, create.pl, create_lig)
-ZDOCK_DIR=/path/to/zdock
+# Bundled ZDOCK toolkit — ABSOLUTE path to the repo's dock_bin/
+ZDOCK_DIR=/abs/path/to/pipeline-standalone/dock_bin
 
-# Lab Fortran helper built in step 2b
-DISTANCE_ANTIBODY_BIN=/abs/path/to/dock_src/distance_antibody
+# Lab Fortran helper built in step 2b — ABSOLUTE path
+DISTANCE_ANTIBODY_BIN=/abs/path/to/pipeline-standalone/dock_src/distance_antibody
 ```
 
-`.env` is loaded automatically from the repo root.
+(`mark_sur` needs the legacy `libg2c.so.0`, also bundled in `dock_bin/`; the
+pipeline adds `ZDOCK_DIR` to `LD_LIBRARY_PATH` automatically, so no extra setup.)
 
 ---
 
 ## 4. Run
+
+The quickest start is the bundled known-good example (real 3WZE parameters):
+
+```bash
+bash examples/run_3WZE.sh          # smoke test: max_iter 5, warmup 2
+# fuller run:  MAX_ITER=2000 WARMUP_SIZE=51 bash examples/run_3WZE.sh
+```
+
+Use it as a template for your own target. The underlying command is:
 
 ```bash
 cd app
@@ -90,6 +110,10 @@ python run_pipeline.py \
   --max_iter 2000
 ```
 
+> Tip: keep each long sequence on a single line — a stray space/line-break
+> inside `--fixed_chain_sequence` etc. silently splits it into a bad argument.
+> Running via a script (like `examples/run_3WZE.sh`) avoids that.
+
 ### Arguments
 
 | Arg | Meaning |
@@ -104,6 +128,7 @@ python run_pipeline.py \
 | `--max_iter` | Maximum search iterations |
 | `--alpha` | UCB exploration weight (default `0.1`) |
 | `--zdock_workers_per_gpu` | ZDOCK parallelism per GPU (default `10`) |
+| `--warmup_size` | Number of random warm-up sequences (default `3 × CDR length`); set small (e.g. `2`) for a quick smoke test |
 
 > The designed chain sequence given to AlphaFold3 is `prefix + CDR + suffix`.
 > ZDOCK parallelism is `len(gpu_ids) * zdock_workers_per_gpu`.
@@ -130,6 +155,7 @@ The best CDR sequence and score are printed at the end and stored in the DB.
   AlphaFold3 process (`CUDA_VISIBLE_DEVICES` is set per worker).
 - **Chain labelling**: the designed (CDR) chain is folded under the label from
   `--selected_chain_type` (`L`/`H`) so the distance helper can locate the CDR;
-  the fixed chain takes the other label.
-- No AlphaFold3 weights, ZDOCK binaries, or databases are included in this
-  repository.
+  the fixed chain takes the other label. The same `cdr_chain_id` flows through
+  fold → dock → distance, so the CDR is always measured on the right chain.
+- **Bundled vs. not**: the ZDOCK toolkit (`dock_bin/`) is included. AlphaFold3
+  code, model weights, and databases are **not** — you provide those.
