@@ -17,13 +17,16 @@ class UCB:
         self.times = config.times    # (20, N)
         self.delta = config.delta
         self.alpha = config.alpha    # (N,)
+        # Search-phase step at which random exploration switches to UCB-guided
+        # selection (configurable; default 500).
+        self.ucb_start = getattr(config, "ucb_start", 500)
         self.select = 0
         self.aa = 0
 
     def select_ac_one(self, seqsidx, *, advance_time: bool = True):
         action = np.array(seqsidx)
 
-        if self.t < 500:
+        if self.t < self.ucb_start:
             self.select = int(np.random.choice(range(self.N), size=1)[0])
             self.aa = int(np.random.choice(range(self.mus.shape[0]), size=1)[0])
         else:

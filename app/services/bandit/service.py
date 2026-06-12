@@ -52,6 +52,7 @@ class BanditStreamService:
         seed_seq: str,
         n_gpu_workers: int = 1,
         n_zdock_workers: int = 30,
+        ucb_start: int = 500,
         early_stop: bool = True,
         es_min_iter: int = 3000,
         es_window_size: int = 100,
@@ -61,7 +62,7 @@ class BanditStreamService:
         es_buffer_windows: int = 2,
         es_adaptive_buffer: bool = True,
     ):
-        self.M = init_ucb_param(length=length, iter=1)
+        self.M = init_ucb_param(length=length, iter=1, ucb_start=ucb_start)
         self.length = length
         self.seed_seq = seed_seq
         self.seed_idx = string_to_index(seed_seq)

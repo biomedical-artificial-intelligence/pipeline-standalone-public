@@ -30,11 +30,13 @@ def _zdock_env():
 class DockService:
     """ZDOCK execution and pose-filtering service (antibody CDR)."""
 
-    def __init__(self, executor=None):
+    def __init__(self, executor=None, n_processes=2):
         self.iter_dir = ""
         # Dedicated executor for ZDOCK subprocess / filtering offload.
         # None falls back to the loop's default ThreadPoolExecutor(min(32, cpu+4)).
         self.executor = executor
+        # Worker processes for the distance/pose-ranking multiprocessing pool.
+        self.n_processes = n_processes
 
     async def run_single_dock(
         self,
@@ -147,6 +149,7 @@ class DockService:
                 cdr_start_position=cdr_start_position,
                 cdr_end_position=cdr_end_position,
                 cdr_chain_id=cdr_chain_id,
+                n_processes=self.n_processes,
             )
 
             best_pose, valid_poses = await loop.run_in_executor(

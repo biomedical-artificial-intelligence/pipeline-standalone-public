@@ -58,7 +58,7 @@ class ucb_config:
     pass
 
 
-def init_ucb_param(length: int, iter: int = 0) -> UCB:
+def init_ucb_param(length: int, iter: int = 0, ucb_start: int = 500) -> UCB:
     uconf = ucb_config()
     uconf.N = length
     uconf.mus = np.zeros((aminoacid_len, uconf.N))
@@ -68,6 +68,7 @@ def init_ucb_param(length: int, iter: int = 0) -> UCB:
     uconf.delta = 0.5
     uconf.alpha = np.ones(uconf.N)
     uconf.iter = iter
+    uconf.ucb_start = ucb_start
     return UCB(uconf)
 
 
