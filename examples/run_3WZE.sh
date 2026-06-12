@@ -27,6 +27,11 @@ python run_pipeline.py \
   --prefix          ELVMTQTPLSLPVSLGDQASISCRSSQSIVHSNGNTYLEWYLQKPGQSPKLLIYKVSNRFSGVPDRFSGSGSGTDFTLKISRVEAEDLGVYYCFQGSHVPRTFGGGTKLEIKRTVA \
   --initial_cdr     APSVFIFPPSDEQLKSG \
   --suffix          TASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRG \
-  --gpu_ids         0 \
-  --max_iter        50 \
+  --gpu_ids         "${GPU_IDS:-0}" \
+  --max_iter        "${MAX_ITER:-5}" \
+  --warmup_size     "${WARMUP_SIZE:-2}" \
   --alpha           0.1
+
+# Smoke-test defaults above (max_iter 5, warmup 2). Override via env, e.g. a
+# fuller run:  MAX_ITER=2000 WARMUP_SIZE=51 bash examples/run_3WZE.sh
+# (omit --warmup_size entirely in your own command to get the 3 x CDR-len default).
