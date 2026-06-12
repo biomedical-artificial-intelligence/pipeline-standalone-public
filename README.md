@@ -18,13 +18,11 @@ bandit (propose CDR)  ->  AlphaFold3 (fold 2-chain antibody)  ->  ZDOCK (dock vs
 
 ## 1. Requirements
 
-You provide three external pieces (none are bundled here):
-
 | Component | What | How the pipeline finds it |
 |-----------|------|----------------------------|
-| **AlphaFold3** | Your own AF3 install (code + model weights + databases) | `ALPHAFOLD_*` env vars |
-| **ZDOCK 3.0.2** | `zdock`, `mark_sur`, `create.pl`, `create_lig` | `ZDOCK_DIR` env var |
-| **distance_antibody** | Lab Fortran helper — source ships in `dock_src/` | `DISTANCE_ANTIBODY_BIN` env var |
+| **AlphaFold3** | Your own AF3 install (code + model weights + databases) — **you provide this** | `ALPHAFOLD_*` env vars |
+| **ZDOCK 3.0.2** | `zdock`, `mark_sur`, `create.pl`, `create_lig` (+ legacy `libg2c.so.0`) — **bundled in `dock_bin/`** | `ZDOCK_DIR` env var |
+| **distance_antibody** | Lab Fortran helper — source ships in `dock_src/`, compile with gfortran | `DISTANCE_ANTIBODY_BIN` env var |
 
 The pipeline's own Python dependencies (numpy, scipy, aiosqlite, PyMOL) are
 installed via conda — see below.
@@ -41,7 +39,7 @@ conda activate pipeline-standalone
 # 2b. Build the lab distance helper
 gfortran -O2 -o dock_src/distance_antibody dock_src/distance_antibody.f
 
-# 2c. Install ZDOCK 3.0.2 separately and note its directory.
+# 2c. ZDOCK is bundled in dock_bin/ (set ZDOCK_DIR=./dock_bin). Nothing to install.
 # 2d. Install AlphaFold3 separately (its own environment).
 ```
 

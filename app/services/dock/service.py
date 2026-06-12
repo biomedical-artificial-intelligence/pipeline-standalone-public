@@ -13,6 +13,20 @@ logger = logging.getLogger(__name__)
 MAX_POSES = 2000
 
 
+def _zdock_env():
+    """Environment for ZDOCK toolkit subprocesses.
+
+    Prepends ZDOCK_DIR to LD_LIBRARY_PATH so shared libraries shipped next to
+    the binaries are found at runtime — notably ``libg2c.so.0`` (the legacy g77
+    runtime) that ``mark_sur`` is linked against and that modern distros no
+    longer provide.
+    """
+    env = os.environ.copy()
+    existing = env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = ZDOCK_DIR + (os.pathsep + existing if existing else "")
+    return env
+
+
 class DockService:
     """ZDOCK execution and pose-filtering service (antibody CDR)."""
 
@@ -47,6 +61,7 @@ class DockService:
             await loop.run_in_executor(self.executor, lambda: subprocess.run(
                 [MARK_SUR_BIN, receptor_pdb, receptor_marksur],
                 cwd=ZDOCK_DIR,
+                env=_zdock_env(),
                 check=True,
                 capture_output=True,
             ))
@@ -54,6 +69,7 @@ class DockService:
             await loop.run_in_executor(self.executor, lambda: subprocess.run(
                 [MARK_SUR_BIN, ligand_pdb, ligand_marksur],
                 cwd=ZDOCK_DIR,
+                env=_zdock_env(),
                 check=True,
                 capture_output=True,
             ))
@@ -66,6 +82,7 @@ class DockService:
                     "-o", zdock_out,
                 ],
                 cwd=ZDOCK_DIR,
+                env=_zdock_env(),
                 capture_output=True,
             ))
 
