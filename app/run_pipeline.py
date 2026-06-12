@@ -33,6 +33,7 @@ async def run_pipeline(
     max_iter: int,
     alpha: float = 0.1,
     zdock_workers_per_gpu: int = ZDOCK_WORKERS_PER_GPU,
+    warmup_size: int | None = None,
 ) -> dict:
     n_workers = len(gpu_ids)
     n_zdock_workers = n_workers * zdock_workers_per_gpu
@@ -88,7 +89,8 @@ async def run_pipeline(
     )
 
     seed_job = bandit.register_seed()
-    warmup_seqs = [generate_random_sequence(cdr_length) for _ in range(3 * cdr_length)]
+    n_warmup = warmup_size if warmup_size is not None else 3 * cdr_length
+    warmup_seqs = [generate_random_sequence(cdr_length) for _ in range(n_warmup)]
     warmup_jobs = bandit.register_initial_seqs(warmup_seqs)
     warmup_jobs_all = [seed_job] + warmup_jobs
 
@@ -323,6 +325,9 @@ def main():
     parser.add_argument("--alpha",                type=float, default=0.1, help="UCB alpha (default: 0.1)")
     parser.add_argument("--zdock_workers_per_gpu", type=int, default=ZDOCK_WORKERS_PER_GPU,
                         help=f"ZDOCK workers per GPU (default: {ZDOCK_WORKERS_PER_GPU})")
+    parser.add_argument("--warmup_size", type=int, default=None,
+                        help="Number of random warm-up sequences (default: 3 x CDR length). "
+                             "Set small (e.g. 2) for a quick end-to-end smoke test.")
 
     args = parser.parse_args()
     gpu_id_list = [int(g.strip()) for g in args.gpu_ids.split(",")]
@@ -340,6 +345,7 @@ def main():
         max_iter=args.max_iter,
         alpha=args.alpha,
         zdock_workers_per_gpu=args.zdock_workers_per_gpu,
+        warmup_size=args.warmup_size,
     ))
 
     print("\n=== Pipeline Result ===")
