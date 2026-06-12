@@ -126,7 +126,7 @@ python run_pipeline.py \
 | `--selected_chain_type` | `Light` or `Heavy` — which chain carries the designed CDR |
 | `--gpu_ids` | Comma-separated GPU ids, one AlphaFold worker per GPU (e.g. `0,1,2`) |
 | `--max_iter` | Maximum search iterations |
-| `--alpha` | UCB exploration weight (default `0.1`) |
+| `--alpha` | Recorded with the run only — does **not** affect the search (see §6) |
 | `--zdock_workers_per_gpu` | ZDOCK parallelism per GPU (default `10`) |
 | `--warmup_size` | Number of random warm-up sequences (default `3 × CDR length`); set small (e.g. `2`) for a quick smoke test |
 
@@ -146,6 +146,60 @@ Results land in `app/output/<pipeline_id>/` (override with `OUTPUT_DIR`):
 - SQLite DB (`pipeline.db` by default) — pipeline + per-iteration scores
 
 The best CDR sequence and score are printed at the end and stored in the DB.
+
+---
+
+## 6. Tuning the search & parallelism
+
+Some knobs are command-line flags; others are constants in the source (the file
+and line are given so you can change them).
+
+### Warm-up phase
+Before the bandit starts steering, the pipeline folds + docks a batch of random
+CDR sequences to seed its statistics.
+
+- **Size** — `--warmup_size N` (default `3 × CDR length`). Each warm-up sequence
+  is a full fold+dock, so this dominates start-up time. Use `--warmup_size 2`
+  for a smoke test; keep the default (or larger) for a real search.
+- After warm-up the bandit emits `n_zdock_workers × 2` initial search jobs from
+  the best warm-up sequence.
+
+### Exploration → UCB transition (the "t" value)
+The search phase first explores **randomly**, then switches to UCB-guided
+1-site mutation once enough observations exist.
+
+- Threshold: **`t < 500`** → random; `t ≥ 500` → UCB. `t` counts search-phase
+  proposals (warm-up does not count). Hard-coded at
+  `app/services/bandit/algorithm.py` (`if self.t < 500:`). Lower it to start
+  exploiting sooner, raise it to explore longer.
+- Other search constants in the same area: top-K pool size `_TOP_K = 10` and the
+  80%-best / 20%-pool base-sequence pick
+  (`app/services/bandit/service.py`).
+
+### Early stopping
+On by default — stops when the best score plateaus.
+
+- `early_stop=True`, `es_min_iter = max_iter // 2` (won't stop before half of
+  `--max_iter`) — set in `app/run_pipeline.py`.
+- Sensitivity (`es_window_size=100`, `es_slope_horizon=3`, `es_slope_eps=0.01`,
+  `es_patience_windows=5`, …) are defaults of `BanditStreamService`
+  (`app/services/bandit/service.py`). Raise `es_slope_eps` / lower patience to
+  stop earlier. To disable entirely, pass `early_stop=False` there.
+
+### Parallelism & CPU usage
+- **GPU / AlphaFold**: one AF worker per id in `--gpu_ids` (folds run in
+  parallel, one per GPU).
+- **ZDOCK (CPU-bound)**: `n_zdock_workers = len(gpu_ids) × --zdock_workers_per_gpu`
+  (default 10/GPU). This sizes the docking thread pool — it is the main CPU
+  throttle. Lower `--zdock_workers_per_gpu` if the machine is overloaded, raise
+  it to use more cores.
+- **Distance calc**: each pose-ranking step uses a `multiprocessing.Pool` of
+  `n_processes=2` (`app/services/dock/filtering.py`). Bump it for faster
+  per-job filtering on many-core machines.
+
+### `--alpha`
+Currently **recorded with the run (DB) but does not change the search** — the
+UCB exploration constant is internal. Leave it at the default.
 
 ---
 
