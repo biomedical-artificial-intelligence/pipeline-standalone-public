@@ -61,14 +61,17 @@ gfortran -O2 -o dock_src/distance_antibody dock_src/distance_antibody.f
 
 ## 3. Configure
 
-The repo ships a `.env` at its root that is **loaded automatically**. It
-contains sample paths from a test machine — **you must edit it for yours**
-(use absolute paths). `.env.example` documents every variable; defaults live in
-`app/config.py`.
+The repo ships a `.env` at its root that is **loaded automatically**. It holds
+**placeholder paths** — **edit them for your machine** (use absolute paths).
+`.env.example` documents every variable; defaults live in `app/config.py`.
 
 ```bash
-$EDITOR .env        # edit the committed .env in place
+$EDITOR .env        # fill in the placeholder paths
 ```
+
+> A ready-to-run reference config from our test server is in `.env.server10`
+> (`cp .env.server10 .env` to reuse it) — handy as a concrete example of what
+> each path looks like.
 
 The variables you must set:
 
