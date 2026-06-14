@@ -11,8 +11,9 @@ from .utils import (
     string_to_index,
     indice_to_string,
     generate_random_sequence,
+    aminoacid_len,
 )
-from .early_stopping import EarlyStopper
+from .breakpoint_detector import BreakpointDetector
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class BanditStreamService:
 
     Search phase:
     - seq_meta로 (select, aa) 저장하여 out-of-order update 안전 처리
-    - UCB 1-site mutation 탐색 (iter 500부터 UCB 전환)
+    - UCB 1-site mutation 탐색 (iter 10*N부터 UCB 전환)
     - top-K pool 기반 base 서열 선택 (80% best, 20% pool random)
     """
 
@@ -52,9 +53,8 @@ class BanditStreamService:
         seed_seq: str,
         n_gpu_workers: int = 1,
         n_zdock_workers: int = 30,
-        ucb_start: int = 500,
         early_stop: bool = True,
-        es_min_iter: int = 3000,
+        warmup_steps: int | None = None,
         es_window_size: int = 100,
         es_slope_horizon: int = 3,
         es_slope_eps: float = 0.01,
@@ -62,13 +62,14 @@ class BanditStreamService:
         es_buffer_windows: int = 2,
         es_adaptive_buffer: bool = True,
     ):
-        self.M = init_ucb_param(length=length, iter=1, ucb_start=ucb_start)
+        self.M = init_ucb_param(length=length, iter=1)
         self.length = length
         self.seed_seq = seed_seq
         self.seed_idx = string_to_index(seed_seq)
         self.n_gpu_workers = n_gpu_workers
         self.n_zdock_workers = n_zdock_workers
-        self.es_min_iter = es_min_iter
+        # [early-stop warmup] 초기 랜덤 탐색 구간(=UCB random_phase=10*N) 제외.
+        self.warmup_steps = warmup_steps if warmup_steps is not None else 10 * length
 
         self.existing_seqs: set = set()
         self.seq_meta: dict = {}
@@ -85,14 +86,15 @@ class BanditStreamService:
         self._top_k_pool: list = []  # min-heap of (score, seq)
         self._TOP_K = 10
 
-        self._stopper: EarlyStopper | None = (
-            EarlyStopper(
+        self._stopper: BreakpointDetector | None = (
+            BreakpointDetector(
                 window_size=es_window_size,
                 slope_horizon=es_slope_horizon,
                 slope_eps=es_slope_eps,
                 patience_windows=es_patience_windows,
                 buffer_windows=es_buffer_windows,
                 adaptive_buffer=es_adaptive_buffer,
+                warmup_steps=self.warmup_steps,
             )
             if early_stop
             else None
@@ -184,7 +186,7 @@ class BanditStreamService:
                     f"best={self.best_score:.4f}, best_seq={self.best_seq}"
                 )
                 initial_jobs = [self._make_next_job(self.best_seq) for _ in range(self.n_zdock_workers * 2)]
-                self.M.t = 1  # 초기 search job 생성 후 t 리셋 → iter 500부터 UCB 전환
+                self.M.t = 1  # 초기 search job 생성 후 t 리셋 → iter 10*N부터 UCB 전환
                 return initial_jobs
 
             return []
@@ -198,7 +200,8 @@ class BanditStreamService:
         self.M.aa = aa
         self.M.update(norm_score)
 
-        if self._stopper is not None and self.iter_count >= self.es_min_iter:
+        if self._stopper is not None:
+            # BreakpointDetector가 내부에서 warmup_steps 구간을 제외한다.
             self._stopper.update(score)
 
         logger.info(
@@ -242,9 +245,9 @@ class BanditStreamService:
         idx = base_idx[:]
         pos = random.randrange(self.length)
         old = idx[pos]
-        aa = random.randrange(20)
+        aa = random.randrange(aminoacid_len)
         if aa == old:
-            aa = (aa + 1) % 20
+            aa = (aa + 1) % aminoacid_len
         idx[pos] = aa
         candidate = indice_to_string(idx)
         self.existing_seqs.add(candidate)

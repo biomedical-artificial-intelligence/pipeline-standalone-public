@@ -34,9 +34,8 @@ async def run_pipeline(
     alpha: float = 0.1,
     zdock_workers_per_gpu: int = ZDOCK_WORKERS_PER_GPU,
     warmup_size: int | None = None,
-    ucb_start: int = 500,
     early_stop: bool = True,
-    es_min_iter: int | None = None,
+    warmup_steps: int | None = None,
     es_window_size: int = 100,
     es_slope_eps: float = 0.01,
     es_patience_windows: int = 5,
@@ -91,9 +90,8 @@ async def run_pipeline(
         seed_seq=initial_cdr,
         n_gpu_workers=n_workers,
         n_zdock_workers=n_zdock_workers,
-        ucb_start=ucb_start,
         early_stop=early_stop,
-        es_min_iter=(es_min_iter if es_min_iter is not None else max_iter // 2),
+        warmup_steps=warmup_steps,
         es_window_size=es_window_size,
         es_slope_eps=es_slope_eps,
         es_patience_windows=es_patience_windows,
@@ -340,15 +338,14 @@ def main():
                         help="Number of random warm-up sequences (default: 3 x CDR length). "
                              "Set small (e.g. 2) for a quick end-to-end smoke test.")
     # ── Search / bandit tuning ───────────────────────────────────────────
-    parser.add_argument("--ucb_start", type=int, default=500,
-                        help="Search step at which random exploration switches to "
-                             "UCB-guided selection (default: 500). Lower = exploit sooner.")
+    # NOTE: UCB random→guided 전환 시점은 이제 내부 고정값 random_phase_steps=10*N.
     parser.add_argument("--early_stop", dest="early_stop", action="store_true", default=True,
                         help="Enable early stopping on score plateau (default: on).")
     parser.add_argument("--no_early_stop", dest="early_stop", action="store_false",
                         help="Disable early stopping (run the full --max_iter).")
-    parser.add_argument("--es_min_iter", type=int, default=None,
-                        help="Min iterations before early stop can trigger (default: max_iter // 2).")
+    parser.add_argument("--warmup_steps", type=int, default=None,
+                        help="Search steps excluded from early-stop detection "
+                             "(initial random-exploration region; default: 10 x CDR length).")
     parser.add_argument("--es_window_size", type=int, default=100,
                         help="Early-stop score-averaging window size (default: 100).")
     parser.add_argument("--es_slope_eps", type=float, default=0.01,
@@ -376,9 +373,8 @@ def main():
         alpha=args.alpha,
         zdock_workers_per_gpu=args.zdock_workers_per_gpu,
         warmup_size=args.warmup_size,
-        ucb_start=args.ucb_start,
         early_stop=args.early_stop,
-        es_min_iter=args.es_min_iter,
+        warmup_steps=args.warmup_steps,
         es_window_size=args.es_window_size,
         es_slope_eps=args.es_slope_eps,
         es_patience_windows=args.es_patience_windows,

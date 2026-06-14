@@ -1,6 +1,6 @@
 import numpy as np
 import logging
-from .algorithm import UCB, Bandit
+from .algorithm import UCB, Bandit, OPTIMISTIC_UCB
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +58,16 @@ class ucb_config:
     pass
 
 
-def init_ucb_param(length: int, iter: int = 0, ucb_start: int = 500) -> UCB:
+def init_ucb_param(length: int, iter: int = 0) -> UCB:
     uconf = ucb_config()
     uconf.N = length
     uconf.mus = np.zeros((aminoacid_len, uconf.N))
-    uconf.ucbs = np.zeros((aminoacid_len, uconf.N))
-    uconf.sigma_t = np.ones((aminoacid_len, uconf.N))
+    # [FIX-v2 A] ucbs 낙관적 초기화(미시도 arm 우선 탐색). [FIX-v2 D] sigma_t 제거.
+    uconf.ucbs = np.full((aminoacid_len, uconf.N), OPTIMISTIC_UCB)
     uconf.times = np.zeros((aminoacid_len, uconf.N))
     uconf.delta = 0.5
     uconf.alpha = np.ones(uconf.N)
     uconf.iter = iter
-    uconf.ucb_start = ucb_start
     return UCB(uconf)
 
 
