@@ -2,7 +2,7 @@ import heapq
 import random
 import numpy as np
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .utils import (
@@ -11,6 +11,7 @@ from .utils import (
     string_to_index,
     indice_to_string,
     generate_random_sequence,
+    aminoacid,
     aminoacid_len,
 )
 from .breakpoint_detector import BreakpointDetector
@@ -61,6 +62,12 @@ class BanditStreamService:
         es_patience_windows: int = 5,
         es_buffer_windows: int = 2,
         es_adaptive_buffer: bool = True,
+        # [detector pass-through] 스케일 둔감 임계 모드. 기본값은 현행(absolute)이라
+        # 동작 변화 없음. resume/실험에서 normalized/relative로 바꾸려면 값만 넘기면 됨.
+        es_eps_mode: str = "absolute",
+        es_relative_eps: float = 0.1,
+        es_scale: float | None = None,
+        es_center: float | None = None,
     ):
         self.M = init_ucb_param(length=length, iter=1)
         self.length = length
@@ -95,6 +102,10 @@ class BanditStreamService:
                 buffer_windows=es_buffer_windows,
                 adaptive_buffer=es_adaptive_buffer,
                 warmup_steps=self.warmup_steps,
+                eps_mode=es_eps_mode,
+                relative_eps=es_relative_eps,
+                scale=es_scale,
+                center=es_center,
             )
             if early_stop
             else None
@@ -128,6 +139,71 @@ class BanditStreamService:
                 is_seed=False,
             ))
         return jobs
+
+    @staticmethod
+    def _infer_select_aa(rec: dict, parent_seq: Optional[str], seq: str):
+        """히스토리 레코드에서 (select, aa) 역추론.
+        mutated_position/mutated_aa 필드 우선, 없으면 parent_seq와 diff."""
+        pos = rec.get("mutated_position")
+        maa = rec.get("mutated_aa")
+        if pos is not None and maa in aminoacid:
+            return int(pos) - 1, aminoacid.index(maa)  # mutated_position은 1-based
+        if parent_seq and len(parent_seq) == len(seq):
+            for i, (p, c) in enumerate(zip(parent_seq, seq)):
+                if p != c and c in aminoacid:
+                    return i, aminoacid.index(c)
+        return None
+
+    def restore_from_history(self, history: list[dict]) -> int:
+        """
+        search-phase 히스토리(iter 오름차순, iter당 1서열)를 replay해 상태 복원.
+
+        - warm-up(seed + 초기 3N)은 DB/파일에 미저장 → 생략. seed-aa 셀(~5%)만 미세
+          영향(times=0으로 보여 resume 직후 몇 step 재탐색)이라 무시 가능.
+        - detector(_stopper)에는 과거 점수를 주입하지 않는다 → fresh 윈도우로 시작해
+          이어붙인 새 구간을 스스로 판단(즉시 재종료 방지).
+
+        Returns: 복원된 iter_count.
+        """
+        self.warmup_complete = True
+        self.warmup_done = self.warmup_total
+
+        for rec in history:
+            seq = rec.get("sequence")
+            score = rec.get("score")
+            if not seq or score is None:
+                continue
+
+            parent_seq = rec.get("parent_seq")
+            norm = normalize_score(score)
+
+            # 생성 시점에 t가 advance되던 것 모사(ucb bonus의 t 의존성 반영)
+            self.M.t += 1
+
+            sel_aa = self._infer_select_aa(rec, parent_seq, seq)
+            if sel_aa is not None:
+                self.M.select, self.M.aa = sel_aa
+                self.M.update(norm)
+            else:
+                # parent 불명(예외) → 전체 서열 기반 업데이트로 폴백
+                self.M.update_from_sequence(norm, string_to_index(seq))
+
+            if score > self.best_score:
+                self.best_score = score
+                self.best_seq = seq
+
+            self._add_to_top_k(score, seq)
+            self.existing_seqs.add(seq)
+            self.iter_count += 1
+
+        # 이후 select_ac_one이 random_phase가 아닌 UCB 모드로 동작하도록 t 보정
+        self.M.t = max(self.M.t, self.iter_count, self.M.random_phase_steps + 1)
+
+        logger.info(
+            f"[resume] restored {self.iter_count} iters | "
+            f"best={self.best_score:.4f} seq={self.best_seq} | M.t={self.M.t}"
+        )
+        return self.iter_count
 
     def _add_to_top_k(self, score: float, seq: str):
         """top-K pool에 추가. K개 초과 시 최저 스코어 제거."""
@@ -186,7 +262,7 @@ class BanditStreamService:
                     f"best={self.best_score:.4f}, best_seq={self.best_seq}"
                 )
                 initial_jobs = [self._make_next_job(self.best_seq) for _ in range(self.n_zdock_workers * 2)]
-                self.M.t = 1  # 초기 search job 생성 후 t 리셋 → iter 10*N부터 UCB 전환
+                self.M.t = 1  # 초기 60개 생성 후 t 리셋 → iter 10*N부터 UCB 전환
                 return initial_jobs
 
             return []
@@ -208,7 +284,7 @@ class BanditStreamService:
             f"Iter {self.iter_count} | score={score:.4f} | best={self.best_score:.4f} | "
             f"t={self.M.t} | seq={job.seq}"
             + (f" | ES[{self._stopper.phase()} buf={self._stopper.stats()['buffer_count']}/{self._stopper.stats()['buffer_length']}]"
-               if self._stopper is not None and self._stopper.phase() == "BUFFER"
+               if self._stopper is not None and self._stopper.phase() == 'BUFFER'
                else "")
         )
 

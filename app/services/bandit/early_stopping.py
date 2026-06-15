@@ -79,36 +79,53 @@ class EarlyStopper:
         self.buffer_base = buffer_windows * W
         self.adaptive_buffer = adaptive_buffer
 
+        # slope 판단 가능 최소 eval: W(윈도우 채움) + slope_H(이력 형성)
         self.min_evals_slope = W + self.slope_H
 
+        # ── 점수 추적 ──────────────────────────────────────
         self._scores: deque[float] = deque(maxlen=W)
+
+        # rolling avg 이력: slope 비교를 위해 최소 slope_H+1개 필요
         self._avg_history: deque[float] = deque(maxlen=self.slope_H + W + 1)
+
+        # rolling std 이력: adaptive buffer percentile 계산용
         self._std_history: deque[float] = deque(maxlen=self.patience_P + self.buffer_base + 1)
 
+        # ── Rule 2 (patience) ──────────────────────────────
         self._best_avg: float = -math.inf
-        self._patience_counter: int = 0
+        self._patience_counter: int = 0   # best_avg 미갱신 eval 누적 수
 
+        # ── 상태 기계 ──────────────────────────────────────
         self._phase: str = _MONITORING
         self._n_evals: int = 0
 
+        # ── 버퍼 상태 ──────────────────────────────────────
         self._buffer_count: int = 0
         self._buffer_length: int = 0
 
+        # ── 현재 지표 (로그 / stats 용) ───────────────────
         self.current_avg: float = math.nan
         self.current_std: float = math.nan
         self.slope: float = math.nan
         self._stop_reason: str = ""
 
+    # ──────────────────────────────────────────────────────
+    # Public API
+    # ──────────────────────────────────────────────────────
+
     def update(self, score: float) -> None:
+        """score 1개를 받아 상태를 갱신한다."""
         if self._phase == _STOPPED:
             return
 
         self._n_evals += 1
         self._scores.append(score)
 
+        # 윈도우가 가득 차기 전엔 rolling 지표 계산 불가
         if len(self._scores) < self.window_size:
             return
 
+        # ── Step A: rolling avg / std 갱신 ──────────────
         scores_list = list(self._scores)
         self.current_avg = sum(scores_list) / self.window_size
         self.current_std = math.sqrt(
@@ -117,21 +134,26 @@ class EarlyStopper:
         self._avg_history.append(self.current_avg)
         self._std_history.append(self.current_std)
 
+        # ── 상태별 갱신 ─────────────────────────────────
         if self._phase == _MONITORING:
             self._update_monitoring()
         elif self._phase == _BUFFER:
             self._update_buffer()
 
     def should_stop(self) -> bool:
+        """True이면 search loop를 종료해야 한다."""
         return self._phase == _STOPPED
 
     def phase(self) -> str:
+        """현재 상태 반환: 'MONITORING' | 'BUFFER' | 'STOPPED'."""
         return self._phase
 
     def reason(self) -> str:
+        """조기 종료 사유 문자열 반환."""
         return self._stop_reason
 
     def stats(self) -> dict:
+        """현재 전체 상태 딕셔너리 반환."""
         return {
             "n_evals":          self._n_evals,
             "phase":            self._phase,
@@ -147,7 +169,16 @@ class EarlyStopper:
             "stop_reason":      self._stop_reason,
         }
 
+    # ──────────────────────────────────────────────────────
+    # 내부 메서드
+    # ──────────────────────────────────────────────────────
+
     def _rule1_slope(self) -> tuple[bool, float]:
+        """
+        Rule 1: 기울기 판정.
+        avg_history가 slope_H+1개 이상 쌓여야 계산 가능.
+        returns (triggered, slope)
+        """
         if len(self._avg_history) <= self.slope_H:
             return False, math.nan
 
@@ -157,6 +188,11 @@ class EarlyStopper:
         return triggered, slope
 
     def _rule2_patience(self, *, update_best: bool = True) -> bool:
+        """
+        Rule 2: patience 판정.
+        best_avg를 추적하며 미갱신 구간이 patience_P 이상이면 True.
+        update_best=False이면 best_avg를 갱신하지 않는다 (버퍼 구간 재상승 감지용).
+        """
         if self.current_avg > self._best_avg + self.slope_eps:
             if update_best:
                 self._best_avg = self.current_avg
@@ -167,6 +203,10 @@ class EarlyStopper:
         return self._patience_counter >= self.patience_P
 
     def _compute_buffer_length(self) -> int:
+        """
+        Step C: 버퍼 길이 계산.
+        adaptive=True이면 현재 rolling_std가 이력의 상위 25%(고변동) 구간일 때 × 1.5.
+        """
         base = self.buffer_base
 
         if not self.adaptive_buffer or len(self._std_history) < 4:
@@ -177,46 +217,79 @@ class EarlyStopper:
         multiplier = 1.5 if self.current_std >= p75 else 1.0
         length = int(base * multiplier)
 
+        logger.debug(
+            f"[EarlyStopper] 버퍼 길이 결정: {length} eval "
+            f"(std={self.current_std:.4f}, p75={p75:.4f}, ×{multiplier:.1f})"
+        )
         return length
 
     def _update_monitoring(self) -> None:
+        """
+        MONITORING 상태 갱신.
+        Rule1 ∧ Rule2 충족 시 → BUFFER 진입.
+        """
+        # slope 판단 가능 최소 eval 미달이면 스킵
         if self._n_evals < self.min_evals_slope:
+            # patience 카운터는 계속 누적
             self._rule2_patience()
             return
 
         r1_triggered, slope = self._rule1_slope()
         r2_triggered = self._rule2_patience()
 
+        logger.debug(
+            f"[EarlyStopper|MONITOR] eval={self._n_evals} | "
+            f"avg={self.current_avg:+.4f} | std={self.current_std:.4f} | "
+            f"slope={slope:+.4f} R1={'✓' if r1_triggered else '✗'} | "
+            f"patience={self._patience_counter}/{self.patience_P} R2={'✓' if r2_triggered else '✗'}"
+        )
+
         if r1_triggered and r2_triggered:
+            # Step C: 버퍼 길이 결정 후 BUFFER 전환
             self._buffer_length = self._compute_buffer_length()
             self._buffer_count = 0
             self._phase = _BUFFER
             logger.info(
-                f"Early stopper BUFFER entered (eval={self._n_evals}) | "
-                f"slope={slope:+.4f} < eps={self.slope_eps} | "
-                f"patience={self._patience_counter} >= {self.patience_P} | "
-                f"buffer={self._buffer_length} eval"
+                f"[EarlyStopper] ▶ BUFFER 진입 (eval={self._n_evals}) | "
+                f"slope={slope:+.4f} < eps={self.slope_eps} ✓ | "
+                f"patience={self._patience_counter} ≥ {self.patience_P} ✓ | "
+                f"버퍼 {self._buffer_length} eval (adaptive={self.adaptive_buffer})"
             )
 
     def _update_buffer(self) -> None:
+        """
+        BUFFER 상태 갱신.
+        Step D: 재상승 감지 시 MONITORING 복귀, 버퍼 소진 시 STOPPED.
+        """
         self._buffer_count += 1
 
+        # Step D: 재상승 확인 (best_avg 갱신 여부)
         if self.current_avg > self._best_avg + self.slope_eps:
             self._best_avg = self.current_avg
             self._patience_counter = 0
             self._buffer_count = 0
             self._phase = _MONITORING
             logger.info(
-                f"Early stopper MONITORING resumed (eval={self._n_evals}) | "
-                f"avg={self.current_avg:+.4f}"
+                f"[EarlyStopper] MONITORING 복귀 (eval={self._n_evals}) | "
+                f"재상승 감지: avg={self.current_avg:+.4f} > best_avg+eps "
+                f"({self._best_avg + self.slope_eps:+.4f})"
             )
             return
 
+        logger.debug(
+            f"[EarlyStopper|BUFFER] {self._buffer_count}/{self._buffer_length} | "
+            f"avg={self.current_avg:+.4f} | best_avg={self._best_avg:+.4f} | "
+            f"std={self.current_std:.4f}"
+        )
+
+        # 버퍼 소진 → STOPPED
         if self._buffer_count >= self._buffer_length:
             self._phase = _STOPPED
             self._stop_reason = (
-                f"early stop confirmed (eval={self._n_evals}) | "
-                f"buffer={self._buffer_length} exhausted | "
-                f"current_avg={self.current_avg:+.4f}, best_avg={self._best_avg:+.4f}, slope={self.slope:+.4f}"
+                f"조기 종료 확정 (eval={self._n_evals}) | "
+                f"버퍼 {self._buffer_length} eval 소진, 재상승 없음 | "
+                f"current_avg={self.current_avg:+.4f}, "
+                f"best_avg={self._best_avg:+.4f}, "
+                f"slope={self.slope:+.4f}"
             )
-            logger.info(f"Early stopper STOPPED - {self._stop_reason}")
+            logger.info(f"[EarlyStopper] ■ STOPPED — {self._stop_reason}")
