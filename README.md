@@ -138,9 +138,9 @@ python run_pipeline.py \
 | `--alpha` | Recorded with the run only — does **not** affect the search (see §6) |
 | `--zdock_workers_per_gpu` | ZDOCK parallelism per GPU (default `10`) |
 | `--warmup_size` | Number of random warm-up sequences (default `3 × CDR length`); set small (e.g. `2`) for a quick smoke test |
-| `--ucb_start` | Search step where random exploration → UCB (default `500`); see §6 |
+| `--warmup_steps` | Search steps excluded from early-stop detection — the initial random-exploration region (default `10 × CDR length`); see §6 |
 | `--early_stop` / `--no_early_stop` | Toggle early stopping on score plateau (default on); see §6 |
-| `--es_min_iter` / `--es_window_size` / `--es_slope_eps` / `--es_patience_windows` | Early-stop tuning; see §6 |
+| `--es_window_size` / `--es_slope_eps` / `--es_patience_windows` | Early-stop tuning; see §6 |
 | `--distance_processes` | Worker processes for the distance/pose-ranking pool (default `2`) |
 
 > The designed chain sequence given to AlphaFold3 is `prefix + CDR + suffix`.
@@ -176,13 +176,17 @@ CDR sequences to seed its statistics.
 - After warm-up the bandit emits `n_zdock_workers × 2` initial search jobs from
   the best warm-up sequence.
 
-### Exploration → UCB transition (the "t" value)
+### Exploration → UCB transition
 The search phase first explores **randomly**, then switches to UCB-guided
 1-site mutation once enough observations exist.
 
-- Threshold: **`--ucb_start N`** (default `500`). `t < N` → random exploration;
-  `t ≥ N` → UCB. `t` counts search-phase proposals (warm-up does not count).
-  Lower it to start exploiting sooner, raise it to explore longer.
+- The transition threshold is **internal** (`random_phase_steps = 10 × CDR
+  length`) and is **not** a command-line flag. Proposals before it are random;
+  after it the bandit picks 1-site mutations by UCB.
+- **`--warmup_steps N`** (default `10 × CDR length`) controls a related knob:
+  how many initial search steps are **excluded from early-stop detection**, so
+  early stopping does not fire during the random-exploration region. Raise it if
+  early stop triggers too soon; lower it to let early stop watch sooner.
 - (Other search constants — top-K pool size `_TOP_K = 10`, the 80%-best /
   20%-pool base-sequence pick — remain in `app/services/bandit/service.py`.)
 
@@ -191,7 +195,8 @@ On by default — stops when the best score plateaus.
 
 - **`--early_stop`** (default on) / **`--no_early_stop`** to run the full
   `--max_iter`.
-- **`--es_min_iter N`** — won't stop before N iterations (default `max_iter // 2`).
+- **`--warmup_steps N`** (default `10 × CDR length`) — initial search steps
+  excluded from early-stop detection, so it won't stop during random exploration.
 - Sensitivity: **`--es_window_size`** (default 100), **`--es_slope_eps`**
   (default 0.01; larger = stop sooner), **`--es_patience_windows`**
   (default 5; smaller = stop sooner).
