@@ -49,6 +49,7 @@ class DockService:
         cdr_end_position: int = None,
         cdr_chain_id: str = "L",
         peptide_length: int = 10,
+        distance_threshold: float = 50.0,
     ) -> Dict[str, Any]:
 
         loop = asyncio.get_event_loop()
@@ -101,6 +102,7 @@ class DockService:
                 cdr_end_position=cdr_end_position,
                 cdr_chain_id=cdr_chain_id,
                 peptide_length=peptide_length,
+                distance_threshold=distance_threshold,
                 pipeline_id=pipeline_id,
                 job_id=job_id,
                 iter_dir=iter_dir,
@@ -124,6 +126,7 @@ class DockService:
         cdr_end_position: int,
         cdr_chain_id: str,
         peptide_length: int,
+        distance_threshold: float = 50.0,
         pipeline_id: int = 0,
         job_id: int = 0,
         iter_dir: str = "",
@@ -150,6 +153,7 @@ class DockService:
                 cdr_end_position=cdr_end_position,
                 cdr_chain_id=cdr_chain_id,
                 n_processes=self.n_processes,
+                distance_max=distance_threshold,
             )
 
             best_pose, valid_poses = await loop.run_in_executor(
@@ -159,7 +163,7 @@ class DockService:
                     pipeline_id=pipeline_id,
                     job_id=job_id,
                     max_poses=MAX_POSES,
-                    distance_threshold=50.0,
+                    distance_threshold=distance_threshold,
                     w1=1.0,
                     w2=1.0,
                 )

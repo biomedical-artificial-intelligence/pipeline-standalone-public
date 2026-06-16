@@ -30,6 +30,8 @@ async def run_pipeline(
     initial_cdr: str,
     cdr_chain_id: str,
     gpu_ids: list[int],
+    *,
+    mode: str = "antibody",
     max_iter: int,
     alpha: float = 0.1,
     zdock_workers_per_gpu: int = ZDOCK_WORKERS_PER_GPU,
@@ -44,9 +46,17 @@ async def run_pipeline(
     n_workers = len(gpu_ids)
     n_zdock_workers = n_workers * zdock_workers_per_gpu
 
-    cdr_length = len(initial_cdr)
-    cdr_start = len(prefix) + 1
-    cdr_end = len(prefix) + cdr_length
+    is_peptide = (mode == "peptide")
+    cdr_length = len(initial_cdr)            # peptide: 펩타이드 길이 / antibody: CDR 길이
+    if is_peptide:
+        # 펩타이드는 CDR 범위 없음 → filtering이 distance(chain P, 1..N) 경로로 분기.
+        cdr_start = None
+        cdr_end = None
+        dist_thr = 15.0
+    else:
+        cdr_start = len(prefix) + 1
+        cdr_end = len(prefix) + cdr_length
+        dist_thr = 50.0
 
     os.makedirs(OUTPUT_BASE_DIR, exist_ok=True)
 
@@ -72,9 +82,9 @@ async def run_pipeline(
     )
 
     logger.info(
-        f"Antibody CDR pipeline start - ID: {pipeline_id}, "
-        f"CDR length: {cdr_length}, cdr_pos={cdr_start}:{cdr_end}, cdr_chain={cdr_chain_id}, "
-        f"seed={initial_cdr}, Max iter: {max_iter}, GPUs: {gpu_ids}, "
+        f"{mode} pipeline start - ID: {pipeline_id}, "
+        f"length: {cdr_length}, cdr_pos={cdr_start}:{cdr_end}, cdr_chain={cdr_chain_id}, "
+        f"seed={initial_cdr}, dist_max={dist_thr}, Max iter: {max_iter}, GPUs: {gpu_ids}, "
         f"ZDOCK workers: {n_zdock_workers}"
     )
 
@@ -143,18 +153,25 @@ async def run_pipeline(
             job_dir = os.path.join(output_dir, f"tmp_{str(job.job_id).zfill(5)}")
             os.makedirs(job_dir, exist_ok=True)
 
-            modified_chain_sequence = prefix + job.seq + suffix
-
             try:
-                await fold_service.run_single_fold(
-                    job_id=job.job_id,
-                    fixed_chain_sequence=fixed_chain_sequence,
-                    modified_chain_sequence=modified_chain_sequence,
-                    cdr_chain_id=cdr_chain_id,
-                    pipeline_id=pipeline_id,
-                    iter_dir=job_dir,
-                    gpu_id=worker_gpu_id,
-                )
+                if is_peptide:
+                    await fold_service.run_single_fold_peptide(
+                        job_id=job.job_id,
+                        sequence=job.seq,
+                        pipeline_id=pipeline_id,
+                        iter_dir=job_dir,
+                        gpu_id=worker_gpu_id,
+                    )
+                else:
+                    await fold_service.run_single_fold(
+                        job_id=job.job_id,
+                        fixed_chain_sequence=fixed_chain_sequence,
+                        modified_chain_sequence=prefix + job.seq + suffix,
+                        cdr_chain_id=cdr_chain_id,
+                        pipeline_id=pipeline_id,
+                        iter_dir=job_dir,
+                        gpu_id=worker_gpu_id,
+                    )
                 # Keep a strong reference to the fire-and-forget task (GC could
                 # otherwise cancel it mid-run); drop it on completion.
                 t = asyncio.create_task(zdock_task(job, job_dir))
@@ -179,6 +196,8 @@ async def run_pipeline(
                     cdr_start_position=cdr_start,
                     cdr_end_position=cdr_end,
                     cdr_chain_id=cdr_chain_id,
+                    peptide_length=cdr_length,
+                    distance_threshold=dist_thr,
                 )
                 score = result.get("score", 0.1)
                 ranking = result.get("ranking", None)
@@ -303,7 +322,7 @@ async def run_pipeline(
         stop_mode = "EARLY_STOP" if early_stopped else "MAX_ITER"
         logger.info(
             f"Pipeline complete [{stop_mode}] - "
-            f"Best score: {bandit.best_score:.4f}, Best CDR: {bandit.best_seq}"
+            f"Best score: {bandit.best_score:.4f}, Best seq: {bandit.best_seq}"
         )
 
         return {
@@ -320,15 +339,17 @@ async def run_pipeline(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Antibody CDR design pipeline (UCB Bandit + AlphaFold3 + ZDOCK)"
+        description="Antibody CDR / Peptide design pipeline (UCB Bandit + AlphaFold3 + ZDOCK)"
     )
-    parser.add_argument("--pdb_name",             required=True, help="Receptor (antigen) PDB file path")
+    parser.add_argument("--mode", choices=["antibody", "peptide"], default="antibody",
+                        help="Design mode (default: antibody). peptide = single-chain free peptide.")
+    parser.add_argument("--pdb_name",             required=True, help="Receptor (antigen/target) PDB file path")
     parser.add_argument("--target_residue",       required=True, help="Target residue on the receptor (e.g. A:100)")
-    parser.add_argument("--fixed_chain_sequence", required=True, help="Fixed antibody chain sequence (the chain NOT being designed)")
-    parser.add_argument("--initial_cdr",          required=True, help="Seed CDR sequence (its length = CDR length)")
-    parser.add_argument("--prefix",               default="",    help="Framework sequence before the CDR on the designed chain")
-    parser.add_argument("--suffix",               default="",    help="Framework sequence after the CDR on the designed chain")
-    parser.add_argument("--selected_chain_type",  required=True, help="Designed chain type: 'Light' or 'Heavy'")
+    parser.add_argument("--initial_cdr",          required=True, help="Seed sequence (length defines design length). antibody=CDR, peptide=peptide")
+    parser.add_argument("--fixed_chain_sequence", default=None,  help="[antibody] Fixed antibody chain sequence (chain NOT being designed)")
+    parser.add_argument("--prefix",               default="",    help="[antibody] Framework before the CDR on the designed chain")
+    parser.add_argument("--suffix",               default="",    help="[antibody] Framework after the CDR on the designed chain")
+    parser.add_argument("--selected_chain_type",  default=None,  help="[antibody] Designed chain type: 'Light' or 'Heavy'")
     parser.add_argument("--gpu_ids",              required=True, help="GPU IDs comma-separated (e.g. 0,1,2)")
     parser.add_argument("--max_iter",             type=int, required=True, help="Max search iterations")
     parser.add_argument("--alpha",                type=float, default=0.1, help="UCB alpha (default: 0.1)")
@@ -358,17 +379,26 @@ def main():
 
     args = parser.parse_args()
     gpu_id_list = [int(g.strip()) for g in args.gpu_ids.split(",")]
-    cdr_chain_id = "L" if "Light" in args.selected_chain_type else "H"
+
+    if args.mode == "antibody":
+        if not args.fixed_chain_sequence or not args.selected_chain_type:
+            parser.error("--fixed_chain_sequence 와 --selected_chain_type 는 antibody 모드에서 필수입니다.")
+        cdr_chain_id = "L" if "Light" in args.selected_chain_type else "H"
+        fixed_chain_sequence = args.fixed_chain_sequence
+    else:  # peptide: 단일 체인, fixed chain/prefix/suffix 미사용. ligand 체인은 내부적으로 "P".
+        cdr_chain_id = "P"
+        fixed_chain_sequence = ""
 
     result = asyncio.run(run_pipeline(
         pdb_name=args.pdb_name,
         target_residue=args.target_residue,
-        fixed_chain_sequence=args.fixed_chain_sequence,
+        fixed_chain_sequence=fixed_chain_sequence,
         prefix=args.prefix,
         suffix=args.suffix,
         initial_cdr=args.initial_cdr,
         cdr_chain_id=cdr_chain_id,
         gpu_ids=gpu_id_list,
+        mode=args.mode,
         max_iter=args.max_iter,
         alpha=args.alpha,
         zdock_workers_per_gpu=args.zdock_workers_per_gpu,
@@ -387,7 +417,7 @@ def main():
     print(f"Stop mode    : {result['stop_mode']}")
     print(f"Total iter   : {result['total_iter']}")
     print(f"Best score   : {result['best_score']:.4f}")
-    print(f"Best CDR     : {result['best_sequence']}")
+    print(f"Best seq     : {result['best_sequence']}")
 
 
 if __name__ == "__main__":

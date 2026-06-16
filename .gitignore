@@ -17,8 +17,9 @@ pipeline.db
 # intentionally committed — private repo, paths only, no secrets. Edit .env for
 # your machine. Do NOT put passwords/tokens in either while the repo is shared.
 
-# Compiled Fortran helper (build from dock_src/distance_antibody.f)
+# Compiled Fortran helpers (build from dock_src/*.f on target)
 dock_src/distance_antibody
+dock_src/distance
 *.o
 
 # Editor / OS
