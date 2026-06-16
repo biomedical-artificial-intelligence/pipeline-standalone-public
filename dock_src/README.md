@@ -1,28 +1,37 @@
-# dock_src — interface-distance helper (lab source)
+# dock_src — interface-distance helpers (lab source)
 
-`distance_antibody.f` is the lab's own Fortran helper that measures the
-minimum distance between the receptor target residue and the antibody CDR
-region of a docked complex. It is used by the pose-filtering step
-(`app/services/dock/filtering.py`).
+Two Fortran helpers measure the minimum distance between the receptor target
+residue and the docked ligand, used by the pose-filtering step
+(`app/services/dock/filtering.py`):
+
+- `distance_antibody.f` — **antibody mode**: distance to the antibody CDR region
+  (CDR residue range + CDR chain id).
+- `distance.f` — **peptide mode**: distance to the peptide ligand (chain `P`,
+  residues `1..peptide_length`).
+
+The two are NOT interchangeable (different ligand-atom bounds + chain handling).
 
 ## Build
 
 ```bash
-gfortran -O2 -o distance_antibody distance_antibody.f
+gfortran -O2 -o distance_antibody distance_antibody.f   # antibody mode
+gfortran -O2 -o distance          distance.f            # peptide mode
 ```
 
-Then point the pipeline at the resulting binary (in `.env`):
+Then point the pipeline at the resulting binaries (in `.env`):
 
 ```bash
-DISTANCE_ANTIBODY_BIN=/abs/path/to/distance_antibody
+DISTANCE_ANTIBODY_BIN=/abs/path/to/distance_antibody    # antibody mode
+DISTANCE_BIN=/abs/path/to/distance                      # peptide mode
 ```
 
-(or place it inside your `ZDOCK_DIR`, which is the default search location).
+(or place them inside your `ZDOCK_DIR`, the default search location).
 
 ## Usage (called internally by the pipeline)
 
 ```
 distance_antibody <complex.pdb> <receptor_chain> <target_res> <cdr_start> <cdr_end> <cdr_chain>
+distance          <complex.pdb> <receptor_chain> <target_res> 1 <peptide_length> P
 ```
 
-It writes the computed distance to `fort.2` in the current working directory.
+Each writes the computed distance to `fort.2` in the current working directory.

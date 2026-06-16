@@ -190,6 +190,7 @@ class GeometricMeanPoseRanker:
         cdr_end_position=None,
         cdr_chain_id="L",
         n_processes=2,
+        distance_max=50.0,
     ):
         self.zdock_output_path = zdock_output_path
         self.receptor_path = receptor_path
@@ -199,7 +200,8 @@ class GeometricMeanPoseRanker:
         self.cdr_chain_id = cdr_chain_id
         self.ZDOCK_MIN = 0.5
         self.ZDOCK_MAX = 3.0
-        self.DISTANCE_MAX = 50.0
+        # proximity 정규화 스케일. antibody=50.0, peptide=15.0 (mode별 주입).
+        self.DISTANCE_MAX = distance_max
         self.n_processes = n_processes
 
     def create_complex_structures_batch(self, target_dir, max_poses, pipeline_id, job_id):

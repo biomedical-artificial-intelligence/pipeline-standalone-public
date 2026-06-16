@@ -1,9 +1,9 @@
-# Antibody CDR Design Pipeline (standalone)
+# Antibody CDR / Peptide Design Pipeline (standalone)
 
-A file-based command-line pipeline that designs antibody CDR sequences by
-iteratively folding candidate antibodies with **AlphaFold3**, docking them
-against a target antigen with **ZDOCK**, and steering the search with a
-**UCB bandit**.
+A file-based command-line pipeline that designs **antibody CDR** sequences or
+free **peptides** by iteratively folding candidates with **AlphaFold3**, docking
+them against a target with **ZDOCK**, and steering the search with a **UCB
+bandit** (same engine + early-stopping for both modes; pick via `--mode`).
 
 This is a **standalone** build: it does **not** bundle AlphaFold3 and runs no
 web server. You install AlphaFold3 yourself and point the pipeline at it via
@@ -49,8 +49,9 @@ x86-64 and dynamically linked against glibc/libstdc++ (plus the bundled
 conda env create -f environment.yml
 conda activate pipeline-standalone
 
-# 2b. Build the lab distance helper
-gfortran -O2 -o dock_src/distance_antibody dock_src/distance_antibody.f
+# 2b. Build the lab distance helpers (antibody + peptide mode)
+gfortran -O2 -o dock_src/distance_antibody dock_src/distance_antibody.f   # antibody
+gfortran -O2 -o dock_src/distance          dock_src/distance.f            # peptide
 
 # 2c. ZDOCK is bundled in dock_bin/ — nothing to install. Use an ABSOLUTE path
 #     for ZDOCK_DIR (the pipeline runs from app/, so a relative ./dock_bin breaks).
@@ -122,6 +123,29 @@ python run_pipeline.py \
 > Tip: keep each long sequence on a single line — a stray space/line-break
 > inside `--fixed_chain_sequence` etc. silently splits it into a bad argument.
 > Running via a script (like `examples/run_3WZE.sh`) avoids that.
+
+### Peptide mode (`--mode peptide`)
+
+Designs a free single-chain peptide against a target — same UCB bandit +
+early-stopping engine, just a 1-chain AlphaFold3 fold and the peptide distance
+helper (`dock_src/distance`, `DISTANCE_MAX = 15 Å`).
+
+```bash
+bash examples/run_peptide_3WZE.sh        # smoke test
+
+# underlying command:
+cd app
+python run_pipeline.py \
+  --mode peptide \
+  --pdb_name /path/to/target.pdb \
+  --target_residue A:100 \
+  --initial_cdr ARDYYGSSYW \          # seed PEPTIDE (length = design length)
+  --gpu_ids 0,1,2 --max_iter 2000
+```
+
+Antibody-only args (`--fixed_chain_sequence`, `--prefix`, `--suffix`,
+`--selected_chain_type`) are unused in peptide mode. Requires `DISTANCE_BIN` in
+`.env` and the `dock_src/distance` binary built (see `dock_src/README.md`).
 
 ### Arguments
 
