@@ -64,23 +64,28 @@ gfortran -O2 -o dock_src/distance          dock_src/distance.f            # pept
 #     Keep uniCHARMM in ZDOCK_DIR as well: mark_sur reads it from its cwd,
 #     and the pipeline runs mark_sur with cwd=ZDOCK_DIR.
 # 2d. Install AlphaFold3 separately (its own environment / Docker image).
+
+# 2e. Fetch the example target structure (chain A of PDB 3WZE, VEGFR-2 kinase
+#     domain). Structures are not redistributed here; this reproduces the exact
+#     file the examples expect:
+{ curl -sL https://files.rcsb.org/download/3WZE.pdb | grep '^ATOM'; echo END; } \
+  > examples/3WZE.pdb
 ```
 
 ---
 
 ## 3. Configure
 
-The repo ships a `.env` at its root that is **loaded automatically**. It holds
-**placeholder paths** — **edit them for your machine** (use absolute paths).
-`.env.example` documents every variable; defaults live in `app/config.py`.
+Copy the template and edit it for your machine (use absolute paths). A `.env`
+at the repository root is **loaded automatically**; `.env.example` documents
+every variable, and the defaults live in `app/config.py`.
 
 ```bash
-$EDITOR .env        # fill in the placeholder paths
+cp .env.example .env
+$EDITOR .env        # fill in the paths
 ```
 
-> A ready-to-run reference config from our test server is in `.env.server10`
-> (`cp .env.server10 .env` to reuse it) — handy as a concrete example of what
-> each path looks like.
+`.env` is git-ignored, so your paths stay local.
 
 The variables you must set:
 
@@ -106,7 +111,8 @@ so nothing else is needed.)
 
 ## 4. Run
 
-The quickest start is the bundled known-good example (real 3WZE parameters):
+The quickest start is the known-good example (real 3WZE parameters). It needs
+`examples/3WZE.pdb` from install step 2e:
 
 ```bash
 bash examples/run_3WZE.sh          # smoke test: max_iter 5, warmup 2
@@ -259,9 +265,10 @@ UCB exploration constant is internal. Leave it at the default.
   `--selected_chain_type` (`L`/`H`) so the distance helper can locate the CDR;
   the fixed chain takes the other label. The same `cdr_chain_id` flows through
   fold → dock → distance, so the CDR is always measured on the right chain.
-- **Not bundled**: the ZDOCK toolkit, and AlphaFold3 code / model weights /
-  databases. You provide all of them; this repository ships only its own code
-  and the Fortran helper sources in `dock_src/`.
+- **Not bundled**: the ZDOCK toolkit, AlphaFold3 code / model weights /
+  databases, and the example target structure. You provide all of them — this
+  repository ships only its own source code (`app/`, `dock_src/`, `examples/`
+  scripts). See install steps 2c and 2e.
 
 ---
 
@@ -281,6 +288,7 @@ terms:
 | ZDOCK 3.0.2 | not included | Weng Lab, UMass Chan Medical School. **Free for academic and non-profit use only**; commercial licensing is handled separately by BIOVIA. It is not redistributed here — obtain it from <https://zlab.umassmed.edu/zdock/>. |
 | `libg2c.so.0` | not included | GNU g77 runtime library, required by `mark_sur`. Install it from your distribution's g77 compatibility package. |
 | AlphaFold 3 | not included | You install it yourself; Google DeepMind's model weights and output are subject to their own terms. |
+| PDB structures (e.g. 3WZE) | not included | Fetched from the RCSB PDB at <https://www.rcsb.org/> — see install step 2e. |
 
 If you use ZDOCK, please cite Pierce, Hourai & Weng, *PLoS ONE* 6(9): e24657
 (2011).

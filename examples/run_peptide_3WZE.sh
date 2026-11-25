@@ -12,6 +12,9 @@
 #   1. conda activate pipeline-standalone
 #   2. cp .env.example .env  &&  edit .env  (AlphaFold3 + ZDOCK + DISTANCE_BIN paths)
 #   3. build dock_src/distance        (gfortran -O2 -o dock_src/distance dock_src/distance.f)
+#   4. fetch the target structure (see README install step 2e):
+#      { curl -sL https://files.rcsb.org/download/3WZE.pdb | grep '^ATOM'; echo END; } \
+#        > examples/3WZE.pdb
 #
 # Then:   bash examples/run_peptide_3WZE.sh
 #

@@ -7,6 +7,9 @@
 #   1. conda activate pipeline-standalone
 #   2. cp .env.example .env  &&  edit .env  (AlphaFold3 + ZDOCK paths)
 #   3. build dock_src/distance_antibody  (see dock_src/README.md)
+#   4. fetch the target structure (see README install step 2e):
+#      { curl -sL https://files.rcsb.org/download/3WZE.pdb | grep '^ATOM'; echo END; } \
+#        > examples/3WZE.pdb
 #
 # Then:   bash examples/run_3WZE.sh
 #
