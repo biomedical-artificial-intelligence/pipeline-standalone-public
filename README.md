@@ -252,3 +252,24 @@ UCB exploration constant is internal. Leave it at the default.
   fold → dock → distance, so the CDR is always measured on the right chain.
 - **Bundled vs. not**: the ZDOCK toolkit (`dock_bin/`) is included. AlphaFold3
   code, model weights, and databases are **not** — you provide those.
+
+---
+
+## License
+
+This project is licensed under the Apache License 2.0 — see the
+[LICENSE](LICENSE) file for details.
+
+### Third-party components
+
+The Apache-2.0 license above covers **this repository's own code only**. The
+following bundled or required components carry their own terms:
+
+| Component | Location | Terms |
+|---|---|---|
+| ZDOCK 3.0.2 (`zdock`, `mark_sur`, `create_lig`, `create.pl`, `block.pl`, `uniCHARMM`) | `dock_bin/` | Weng Lab, UMass Chan Medical School. **Free for academic and non-profit use only**; commercial licensing is handled separately by BIOVIA. Obtain it from <https://zlab.umassmed.edu/zdock/>. Not covered by this repository's license. |
+| `libg2c.so.0` | `dock_bin/` | GNU g77 runtime library (GPL with linking exception), included only because `mark_sur` is linked against it. |
+| AlphaFold 3 | not included | You install it yourself; Google DeepMind's model weights and output are subject to their own terms. |
+
+If you use ZDOCK, please cite Pierce, Hourai & Weng, *PLoS ONE* 6(9): e24657
+(2011).

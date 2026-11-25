@@ -14,8 +14,9 @@ pipeline.db
 *.out
 
 # NOTE: .env (placeholder paths) and .env.server10 (reference config) are
-# intentionally committed — private repo, paths only, no secrets. Edit .env for
-# your machine. Do NOT put passwords/tokens in either while the repo is shared.
+# intentionally committed — paths only, no secrets. Edit .env for your machine.
+# This repository is PUBLIC: never commit passwords, tokens, API keys, or real
+# internal host paths to either file.
 
 # Compiled Fortran helpers (build from dock_src/*.f on target)
 dock_src/distance_antibody
