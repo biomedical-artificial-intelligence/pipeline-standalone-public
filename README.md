@@ -7,7 +7,8 @@ bandit** (same engine + early-stopping for both modes; pick via `--mode`).
 
 This is a **standalone** build: it does **not** bundle AlphaFold3 and runs no
 web server. You install AlphaFold3 yourself and point the pipeline at it via
-environment variables (the ZDOCK toolkit *is* bundled, in `dock_bin/`).
+environment variables, and you obtain the ZDOCK toolkit yourself (see
+Requirements).
 Everything runs from the command line and reads/writes plain files plus a small
 SQLite job database.
 
@@ -28,7 +29,7 @@ bandit (propose CDR)  ->  AlphaFold3 (fold 2-chain antibody)  ->  ZDOCK (dock vs
 | Component | What | How the pipeline finds it |
 |-----------|------|----------------------------|
 | **AlphaFold3** | Your own AF3 install (code + model weights + databases) — **you provide this** | `ALPHAFOLD_*` env vars |
-| **ZDOCK 3.0.2** | `zdock`, `mark_sur`, `create.pl`, `create_lig` (+ legacy `libg2c.so.0`) — **bundled in `dock_bin/`** | `ZDOCK_DIR` env var |
+| **ZDOCK 3.0.2** | `zdock`, `mark_sur`, `create.pl`, `create_lig`, `block.pl`, `uniCHARMM` (+ the legacy `libg2c.so.0` that `mark_sur` links against) — **you provide this**, see step 2c | `ZDOCK_DIR` env var |
 | **distance_antibody** | Lab Fortran helper — source ships in `dock_src/`, compile with gfortran | `DISTANCE_ANTIBODY_BIN` env var |
 
 The pipeline's own Python dependencies (numpy, scipy, aiosqlite, PyMOL) are
@@ -36,9 +37,10 @@ installed via conda — see below.
 
 **Host tools** (standard on most Linux; install if missing): `conda`/`mamba`
 (Python env), `gfortran` (builds the distance helper), and `perl` at
-`/usr/bin/perl` (ZDOCK's `create.pl`). The bundled ZDOCK binaries are Linux
-x86-64 and dynamically linked against glibc/libstdc++ (plus the bundled
-`libg2c.so.0`).
+`/usr/bin/perl` (ZDOCK's `create.pl`). The ZDOCK 3.0.2 Linux build is x86-64
+and dynamically linked against glibc/libstdc++ plus the legacy `libg2c.so.0`,
+so install your distribution's g77 compatibility package if that library is
+missing.
 
 ---
 
@@ -53,8 +55,14 @@ conda activate pipeline-standalone
 gfortran -O2 -o dock_src/distance_antibody dock_src/distance_antibody.f   # antibody
 gfortran -O2 -o dock_src/distance          dock_src/distance.f            # peptide
 
-# 2c. ZDOCK is bundled in dock_bin/ — nothing to install. Use an ABSOLUTE path
-#     for ZDOCK_DIR (the pipeline runs from app/, so a relative ./dock_bin breaks).
+# 2c. Obtain ZDOCK 3.0.2 yourself from https://zlab.umassmed.edu/zdock/
+#     (free for academic/non-profit use; it is NOT redistributed here).
+#     Unpack it anywhere and point ZDOCK_DIR at that directory with an
+#     ABSOLUTE path — the pipeline runs from app/, so a relative path breaks.
+#     mark_sur also needs the legacy libg2c.so.0 next to the binaries; on most
+#     distributions it comes from the compat package for g77 (e.g. libg2c0).
+#     Keep uniCHARMM in ZDOCK_DIR as well: mark_sur reads it from its cwd,
+#     and the pipeline runs mark_sur with cwd=ZDOCK_DIR.
 # 2d. Install AlphaFold3 separately (its own environment / Docker image).
 ```
 
@@ -83,15 +91,16 @@ ALPHAFOLD_SCRIPT=/path/to/alphafold3/run_alphafold.py
 ALPHAFOLD_MODEL_DIR=/path/to/alphafold3/models
 ALPHAFOLD_DB_DIR=/path/to/alphafold3/databases
 
-# Bundled ZDOCK toolkit — ABSOLUTE path to the repo's dock_bin/
-ZDOCK_DIR=/abs/path/to/pipeline-standalone/dock_bin
+# ZDOCK toolkit you unpacked in step 2c — ABSOLUTE path
+ZDOCK_DIR=/abs/path/to/zdock3.0.2
 
 # Lab Fortran helper built in step 2b — ABSOLUTE path
 DISTANCE_ANTIBODY_BIN=/abs/path/to/pipeline-standalone/dock_src/distance_antibody
 ```
 
-(`mark_sur` needs the legacy `libg2c.so.0`, also bundled in `dock_bin/`; the
-pipeline adds `ZDOCK_DIR` to `LD_LIBRARY_PATH` automatically, so no extra setup.)
+(`mark_sur` needs the legacy `libg2c.so.0`. Put it in `ZDOCK_DIR` next to the
+binaries — the pipeline prepends `ZDOCK_DIR` to `LD_LIBRARY_PATH` automatically,
+so nothing else is needed.)
 
 ---
 
@@ -250,8 +259,9 @@ UCB exploration constant is internal. Leave it at the default.
   `--selected_chain_type` (`L`/`H`) so the distance helper can locate the CDR;
   the fixed chain takes the other label. The same `cdr_chain_id` flows through
   fold → dock → distance, so the CDR is always measured on the right chain.
-- **Bundled vs. not**: the ZDOCK toolkit (`dock_bin/`) is included. AlphaFold3
-  code, model weights, and databases are **not** — you provide those.
+- **Not bundled**: the ZDOCK toolkit, and AlphaFold3 code / model weights /
+  databases. You provide all of them; this repository ships only its own code
+  and the Fortran helper sources in `dock_src/`.
 
 ---
 
@@ -263,12 +273,13 @@ This project is licensed under the Apache License 2.0 — see the
 ### Third-party components
 
 The Apache-2.0 license above covers **this repository's own code only**. The
-following bundled or required components carry their own terms:
+following required components are *not* distributed here and carry their own
+terms:
 
 | Component | Location | Terms |
 |---|---|---|
-| ZDOCK 3.0.2 (`zdock`, `mark_sur`, `create_lig`, `create.pl`, `block.pl`, `uniCHARMM`) | `dock_bin/` | Weng Lab, UMass Chan Medical School. **Free for academic and non-profit use only**; commercial licensing is handled separately by BIOVIA. Obtain it from <https://zlab.umassmed.edu/zdock/>. Not covered by this repository's license. |
-| `libg2c.so.0` | `dock_bin/` | GNU g77 runtime library (GPL with linking exception), included only because `mark_sur` is linked against it. |
+| ZDOCK 3.0.2 | not included | Weng Lab, UMass Chan Medical School. **Free for academic and non-profit use only**; commercial licensing is handled separately by BIOVIA. It is not redistributed here — obtain it from <https://zlab.umassmed.edu/zdock/>. |
+| `libg2c.so.0` | not included | GNU g77 runtime library, required by `mark_sur`. Install it from your distribution's g77 compatibility package. |
 | AlphaFold 3 | not included | You install it yourself; Google DeepMind's model weights and output are subject to their own terms. |
 
 If you use ZDOCK, please cite Pierce, Hourai & Weng, *PLoS ONE* 6(9): e24657
