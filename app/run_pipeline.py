@@ -93,7 +93,11 @@ async def run_pipeline(
     # default ThreadPoolExecutor(min(32, cpu+4)) does not silently cap parallelism.
     dock_executor = ThreadPoolExecutor(max_workers=n_dock_workers)
     dock_service = DockService(executor=dock_executor, n_processes=distance_processes)
-    receptor_path = pdb_name
+    # The ZDOCK binaries run with cwd=DOCK_DIR, so a relative path would resolve
+    # against DOCK_DIR instead of the caller's directory.
+    receptor_path = os.path.abspath(pdb_name)
+    if not os.path.isfile(receptor_path):
+        raise FileNotFoundError(f"--pdb_name not found: {pdb_name} (resolved to {receptor_path})")
 
     bandit = BanditStreamService(
         length=cdr_length,
@@ -133,6 +137,7 @@ async def run_pipeline(
     jobs_submitted = len(warmup_jobs_all)
     jobs_completed = 0
     early_stopped = False
+    dock_stats = {"ok": 0, "fail": 0}
 
     for job in warmup_jobs_all:
         await af_queue.put(job)
@@ -201,10 +206,12 @@ async def run_pipeline(
                 )
                 score = result.get("score", 0.1)
                 ranking = result.get("ranking", None)
+                dock_stats["ok"] += 1
             except Exception as e:
                 logger.error(f"ZDOCK failed - job {job.job_id}: {e}")
                 score = 0.1
                 ranking = None
+                dock_stats["fail"] += 1
 
             await result_queue.put((job, job_dir, score, ranking, None))
 
@@ -318,6 +325,12 @@ async def run_pipeline(
                 shutil.rmtree(os.path.join(output_dir, item), ignore_errors=True)
 
         await db.finish_pipeline(pipeline_id)
+
+        if dock_stats["ok"] == 0 and dock_stats["fail"]:
+            raise RuntimeError(
+                f"every docking attempt failed ({dock_stats['fail']}); "
+                "scores are meaningless. Check DOCK_DIR and the log above."
+            )
 
         stop_mode = "EARLY_STOP" if early_stopped else "MAX_ITER"
         logger.info(

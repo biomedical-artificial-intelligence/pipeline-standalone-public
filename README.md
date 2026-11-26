@@ -305,6 +305,9 @@ by the [AlphaFold 3 Output Terms of Use](https://github.com/google-deepmind/alph
   AlphaFold 3 paper** (see Citation below).
 - Making Output publicly available through a scientific publication or an open
   source release is expressly permitted by those Terms.
+- This pipeline keeps only `*_model.cif` and the two confidence JSONs per fold,
+  which deletes the `TERMS_OF_USE.md` that AlphaFold 3 writes beside them. If
+  you distribute predicted structures, attach the Output Terms yourself.
 
 Read the Terms yourself before relying on this summary; it is not legal advice
 and the Terms govern.

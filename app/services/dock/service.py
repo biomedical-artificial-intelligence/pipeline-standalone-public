@@ -56,13 +56,18 @@ class DockService:
         temp_dir = tempfile.mkdtemp(prefix=f"marksur_{pipeline_id}_{job_id}_")
 
         try:
-            receptor_marksur = os.path.join(temp_dir, f"marksur_{os.path.basename(receptor_pdb)}")
+            # mark_sur aborts on paths longer than 120 characters, so stage its
+            # inputs and ZDOCK's output inside the short temp dir.
             ligand_pdb = os.path.join(iter_dir, "input_batch_01.pdb")
+            receptor_in = shutil.copy2(receptor_pdb, os.path.join(temp_dir, "receptor.pdb"))
+            ligand_in = shutil.copy2(ligand_pdb, os.path.join(temp_dir, "ligand.pdb"))
+            receptor_marksur = os.path.join(temp_dir, "marksur_receptor.pdb")
             ligand_marksur = os.path.join(temp_dir, "marksur_ligand_01.pdb")
+            dock_out_tmp = os.path.join(temp_dir, "dock_batch_01.out")
             dock_out = os.path.join(iter_dir, "dock_batch_01.out")
 
             await loop.run_in_executor(self.executor, lambda: subprocess.run(
-                [DOCK_PREP_BIN, receptor_pdb, receptor_marksur],
+                [DOCK_PREP_BIN, receptor_in, receptor_marksur],
                 cwd=DOCK_DIR,
                 env=_dock_env(),
                 check=True,
@@ -70,7 +75,7 @@ class DockService:
             ))
 
             await loop.run_in_executor(self.executor, lambda: subprocess.run(
-                [DOCK_PREP_BIN, ligand_pdb, ligand_marksur],
+                [DOCK_PREP_BIN, ligand_in, ligand_marksur],
                 cwd=DOCK_DIR,
                 env=_dock_env(),
                 check=True,
@@ -82,15 +87,16 @@ class DockService:
                     DOCK_BIN,
                     "-R", receptor_marksur,
                     "-L", ligand_marksur,
-                    "-o", dock_out,
+                    "-o", dock_out_tmp,
                 ],
                 cwd=DOCK_DIR,
                 env=_dock_env(),
                 capture_output=True,
             ))
 
-            if not os.path.exists(dock_out) or os.path.getsize(dock_out) == 0:
-                raise Exception(f"ZDOCK output not found: {dock_out}")
+            if not os.path.exists(dock_out_tmp) or os.path.getsize(dock_out_tmp) == 0:
+                raise Exception(f"ZDOCK output not found: {dock_out_tmp}")
+            shutil.copy2(dock_out_tmp, dock_out)
 
             result = await self._run_filtering_for_batch(
                 batch_str="01",
