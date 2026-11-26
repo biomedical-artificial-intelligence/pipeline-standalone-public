@@ -8,8 +8,8 @@ from multiprocessing import Pool
 from config import (
     DISTANCE_BIN,
     DISTANCE_ANTIBODY_BIN,
-    CREATE_PL,
-    CREATE_LIG_BIN,
+    DOCK_CREATE_PL,
+    DOCK_CREATE_LIG_BIN,
     SCRATCH_DIR,
 )
 
@@ -94,10 +94,10 @@ def calculate_distance_fortran_worker_antibody(complex_pdb_path, chain_id, targe
         return None
 
 
-def extract_zdock_score_fast(zdock_output_path, pose_number):
+def extract_dock_score_fast(dock_output_path, pose_number):
     """Extract the ZDOCK score for a given pose."""
     try:
-        with open(zdock_output_path, "r") as f:
+        with open(dock_output_path, "r") as f:
             pose_count = 0
             for line in f:
                 if line.strip() and not line.startswith("#"):
@@ -120,8 +120,8 @@ def extract_zdock_score_fast(zdock_output_path, pose_number):
 def process_single_pose_fortran(args):
     """Process a single pose (distance + ZDOCK score -> geometric-mean score)."""
     (pose_num, complex_pdb_path, chain_id, target_res, peptide_length,
-     distance_threshold, zdock_output_path, w1, w2,
-     ZDOCK_MIN, ZDOCK_MAX, DISTANCE_MAX,
+     distance_threshold, dock_output_path, w1, w2,
+     DOCK_MIN, DOCK_MAX, DISTANCE_MAX,
      cdr_start_position, cdr_end_position, cdr_chain_id) = args
 
     try:
@@ -141,28 +141,28 @@ def process_single_pose_fortran(args):
         if distance is None or distance > distance_threshold:
             return None
 
-        zdock_score = extract_zdock_score_fast(zdock_output_path, pose_num)
+        dock_score = extract_dock_score_fast(dock_output_path, pose_num)
 
-        if zdock_score is None:
+        if dock_score is None:
             return None
 
-        zdock_norm = (zdock_score - ZDOCK_MIN) / (ZDOCK_MAX - ZDOCK_MIN)
-        zdock_norm = max(0.0, min(1.0, zdock_norm))
+        dock_norm = (dock_score - DOCK_MIN) / (DOCK_MAX - DOCK_MIN)
+        dock_norm = max(0.0, min(1.0, dock_norm))
 
         proximity_norm = (DISTANCE_MAX - distance) / DISTANCE_MAX
         proximity_norm = max(0.0, min(1.0, proximity_norm))
 
-        if zdock_norm <= 0 or proximity_norm <= 0:
+        if dock_norm <= 0 or proximity_norm <= 0:
             enhanced_score = 0.0
         else:
-            enhanced_score = ((zdock_norm ** w1) * (proximity_norm ** w2)) ** (1 / (w1 + w2))
+            enhanced_score = ((dock_norm ** w1) * (proximity_norm ** w2)) ** (1 / (w1 + w2))
 
         return {
             "pose_number": pose_num,
-            "zdock_score": zdock_score,
+            "dock_score": dock_score,
             "distance": distance,
             "enhanced_score": enhanced_score,
-            "zdock_norm": zdock_norm,
+            "dock_norm": dock_norm,
             "proximity_norm": proximity_norm,
             "pdb_path": complex_pdb_path,
         }
@@ -183,7 +183,7 @@ class GeometricMeanPoseRanker:
 
     def __init__(
         self,
-        zdock_output_path=None,
+        dock_output_path=None,
         receptor_path=None,
         peptide_length=10,
         cdr_start_position=None,
@@ -192,14 +192,14 @@ class GeometricMeanPoseRanker:
         n_processes=2,
         distance_max=50.0,
     ):
-        self.zdock_output_path = zdock_output_path
+        self.dock_output_path = dock_output_path
         self.receptor_path = receptor_path
         self.peptide_length = peptide_length
         self.cdr_start_position = cdr_start_position
         self.cdr_end_position = cdr_end_position
         self.cdr_chain_id = cdr_chain_id
-        self.ZDOCK_MIN = 0.5
-        self.ZDOCK_MAX = 3.0
+        self.DOCK_MIN = 0.5
+        self.DOCK_MAX = 3.0
         # proximity 정규화 스케일. antibody=50.0, peptide=15.0 (mode별 주입).
         self.DISTANCE_MAX = distance_max
         self.n_processes = n_processes
@@ -208,8 +208,8 @@ class GeometricMeanPoseRanker:
         """Generate complex structures from the ZDOCK output via create.pl."""
         dock_work_dir = None
         try:
-            if not os.path.exists(self.zdock_output_path):
-                logger.error(f"ZDOCK output not found: {self.zdock_output_path}")
+            if not os.path.exists(self.dock_output_path):
+                logger.error(f"ZDOCK output not found: {self.dock_output_path}")
                 return False
 
             # Per-job working directory under scratch; create.pl needs its
@@ -218,11 +218,11 @@ class GeometricMeanPoseRanker:
             dock_work_dir = os.path.join(SCRATCH_DIR, f"{target_name}_{pipeline_id}_{job_id}")
             os.makedirs(dock_work_dir, exist_ok=True)
 
-            _safe_symlink(CREATE_PL, os.path.join(dock_work_dir, "create.pl"))
-            _safe_symlink(CREATE_LIG_BIN, os.path.join(dock_work_dir, "create_lig"))
+            _safe_symlink(DOCK_CREATE_PL, os.path.join(dock_work_dir, "create.pl"))
+            _safe_symlink(DOCK_CREATE_LIG_BIN, os.path.join(dock_work_dir, "create_lig"))
             _safe_symlink(self.receptor_path, os.path.join(dock_work_dir, "receptor"))
 
-            cmd = ["./create.pl", os.path.abspath(self.zdock_output_path), str(max_poses)]
+            cmd = ["./create.pl", os.path.abspath(self.dock_output_path), str(max_poses)]
 
             result = subprocess.run(
                 cmd,
@@ -275,8 +275,8 @@ class GeometricMeanPoseRanker:
             complex_pdb_path = os.path.join(target_dir, f"complex.{pose_num}.pdb")
             process_args.append((
                 pose_num, complex_pdb_path, chain_id, int(target_res), self.peptide_length,
-                distance_threshold, self.zdock_output_path, w1, w2,
-                self.ZDOCK_MIN, self.ZDOCK_MAX, self.DISTANCE_MAX,
+                distance_threshold, self.dock_output_path, w1, w2,
+                self.DOCK_MIN, self.DOCK_MAX, self.DISTANCE_MAX,
                 self.cdr_start_position, self.cdr_end_position, self.cdr_chain_id,
             ))
 

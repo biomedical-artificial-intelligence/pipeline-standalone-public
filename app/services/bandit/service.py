@@ -40,7 +40,7 @@ class BanditStreamService:
     Warm-up phase:
     - seed_seq: update_from_sequence() - 전체 서열 기반 업데이트
     - 초기 3N: update_from_mutations() - seed 대비 mutation 위치만 업데이트
-    - warm-up 전체 완료 후 best 서열 기준으로 n_zdock_workers * 2개 초기 search job 반환
+    - warm-up 전체 완료 후 best 서열 기준으로 n_dock_workers * 2개 초기 search job 반환
 
     Search phase:
     - seq_meta로 (select, aa) 저장하여 out-of-order update 안전 처리
@@ -53,7 +53,7 @@ class BanditStreamService:
         length: int,
         seed_seq: str,
         n_gpu_workers: int = 1,
-        n_zdock_workers: int = 30,
+        n_dock_workers: int = 30,
         early_stop: bool = True,
         warmup_steps: int | None = None,
         es_window_size: int = 100,
@@ -74,7 +74,7 @@ class BanditStreamService:
         self.seed_seq = seed_seq
         self.seed_idx = string_to_index(seed_seq)
         self.n_gpu_workers = n_gpu_workers
-        self.n_zdock_workers = n_zdock_workers
+        self.n_dock_workers = n_dock_workers
         # [early-stop warmup] 초기 랜덤 탐색 구간(=UCB random_phase=10*N) 제외.
         self.warmup_steps = warmup_steps if warmup_steps is not None else 10 * length
 
@@ -228,7 +228,7 @@ class BanditStreamService:
         Returns:
             list[JobMeta]:
                 - warm-up 진행 중: []
-                - warm-up 완료 시: n_zdock_workers * 2개의 초기 search job
+                - warm-up 완료 시: n_dock_workers * 2개의 초기 search job
                 - search phase: 다음 job 1개
         """
         norm_score = normalize_score(score)
@@ -261,7 +261,7 @@ class BanditStreamService:
                     f"Warm-up complete ({self.warmup_total}) - "
                     f"best={self.best_score:.4f}, best_seq={self.best_seq}"
                 )
-                initial_jobs = [self._make_next_job(self.best_seq) for _ in range(self.n_zdock_workers * 2)]
+                initial_jobs = [self._make_next_job(self.best_seq) for _ in range(self.n_dock_workers * 2)]
                 self.M.t = 1  # 초기 60개 생성 후 t 리셋 → iter 10*N부터 UCB 전환
                 return initial_jobs
 

@@ -6,28 +6,28 @@ import time
 import logging
 
 
-class AlphaFold3ParallelRunner:
+class FoldRunner:
     """
     AlphaFold3 직접 실행 runner.
     Docker-in-Docker 없이 컨테이너 내부에서 run_alphafold.py를 직접 subprocess로 호출.
     """
 
     def __init__(self, logger_name=None):
-        self.logger = logging.getLogger(logger_name or "AlphaFold3ParallelRunner")
+        self.logger = logging.getLogger(logger_name or "FoldRunner")
 
         from config import (
             INPUT_BASE_DIR, OUTPUT_BASE_DIR,
-            ALPHAFOLD_PYTHON, ALPHAFOLD_SCRIPT, ALPHAFOLD_MODEL_DIR, ALPHAFOLD_DB_DIR,
+            FOLD_PYTHON, FOLD_SCRIPT, FOLD_MODEL_DIR, FOLD_DB_DIR,
         )
 
         self.input_base_dir = INPUT_BASE_DIR
         self.output_base_dir = OUTPUT_BASE_DIR
 
         # Interpreter of the user's external AlphaFold3 environment.
-        self.alphafold_python = ALPHAFOLD_PYTHON
-        self.alphafold_script = ALPHAFOLD_SCRIPT
-        self.model_dir = ALPHAFOLD_MODEL_DIR
-        self.db_dir = ALPHAFOLD_DB_DIR
+        self.fold_python = FOLD_PYTHON
+        self.fold_script = FOLD_SCRIPT
+        self.model_dir = FOLD_MODEL_DIR
+        self.db_dir = FOLD_DB_DIR
 
         os.makedirs(self.input_base_dir, exist_ok=True)
         os.makedirs(self.output_base_dir, exist_ok=True)
@@ -47,7 +47,7 @@ class AlphaFold3ParallelRunner:
         os.makedirs(path, exist_ok=True)
         return path
 
-    def create_alphafold_input(self, sequence, job_name, pipeline_id):
+    def create_fold_input(self, sequence, job_name, pipeline_id):
         try:
             input_json = {
                 "name": job_name,
@@ -67,7 +67,7 @@ class AlphaFold3ParallelRunner:
                 "version": 1
             }
 
-            input_path = os.path.join(self._input_dir(pipeline_id), f"alphafold_input_{job_name}.json")
+            input_path = os.path.join(self._input_dir(pipeline_id), f"fold_input_{job_name}.json")
             with open(input_path, 'w') as f:
                 json.dump(input_json, f, indent=2)
 
@@ -77,7 +77,7 @@ class AlphaFold3ParallelRunner:
             self.logger.error(f"Input file creation failed: {e}")
             return {'success': False, 'error_code': 'INPUT_CREATION_FAILED', 'error_message': str(e)}
 
-    def create_alphafold_input_antibody(self, fixed_chain_sequence, modified_chain_sequence,
+    def create_fold_input_antibody(self, fixed_chain_sequence, modified_chain_sequence,
                                         cdr_chain_id, job_name, pipeline_id):
         """
         Build a 2-chain AlphaFold3 input (antibody).
@@ -115,7 +115,7 @@ class AlphaFold3ParallelRunner:
                 "version": 1
             }
 
-            input_path = os.path.join(self._input_dir(pipeline_id), f"alphafold_input_{job_name}.json")
+            input_path = os.path.join(self._input_dir(pipeline_id), f"fold_input_{job_name}.json")
             with open(input_path, 'w') as f:
                 json.dump(input_json, f, indent=2)
 
@@ -125,7 +125,7 @@ class AlphaFold3ParallelRunner:
             self.logger.error(f"Antibody input file creation failed: {e}")
             return {'success': False, 'error_code': 'INPUT_CREATION_FAILED', 'error_message': str(e)}
 
-    def run_alphafold(self, job_name, input_path, gpu_id, pipeline_id):
+    def run_fold(self, job_name, input_path, gpu_id, pipeline_id):
         try:
             output_dir = self._output_dir(pipeline_id, job_name)
             pipeline_output_dir = self._pipeline_output_dir(pipeline_id)
@@ -135,7 +135,7 @@ class AlphaFold3ParallelRunner:
 
             result = subprocess.run(
                 [
-                    self.alphafold_python, self.alphafold_script,
+                    self.fold_python, self.fold_script,
                     f"--json_path={input_path}",
                     f"--model_dir={self.model_dir}",
                     f"--db_dir={self.db_dir}",
@@ -248,11 +248,11 @@ class AlphaFold3ParallelRunner:
 
                 job_name = f"{pipeline_id}_{iter}_{batch}"
 
-                input_result = self.create_alphafold_input(sequence, job_name, pipeline_id)
+                input_result = self.create_fold_input(sequence, job_name, pipeline_id)
                 if not input_result['success']:
                     return input_result
 
-                af_result = self.run_alphafold(job_name, input_result['input_path'], gpu_id, pipeline_id)
+                af_result = self.run_fold(job_name, input_result['input_path'], gpu_id, pipeline_id)
                 if not af_result['success']:
                     if self._is_retryable_error(af_result['error_code'], af_result['error_message']) and attempt < max_retries:
                         self.logger.warning(f"Retryable error, retrying: {af_result['error_code']}")
@@ -290,13 +290,13 @@ class AlphaFold3ParallelRunner:
 
                 job_name = f"{pipeline_id}_{iter}_{batch}"
 
-                input_result = self.create_alphafold_input_antibody(
+                input_result = self.create_fold_input_antibody(
                     fixed_chain_sequence, modified_chain_sequence, cdr_chain_id, job_name, pipeline_id
                 )
                 if not input_result['success']:
                     return input_result
 
-                af_result = self.run_alphafold(job_name, input_result['input_path'], gpu_id, pipeline_id)
+                af_result = self.run_fold(job_name, input_result['input_path'], gpu_id, pipeline_id)
                 if not af_result['success']:
                     if self._is_retryable_error(af_result['error_code'], af_result['error_message']) and attempt < max_retries:
                         self.logger.warning(f"Retryable error, retrying: {af_result['error_code']}")

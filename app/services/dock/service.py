@@ -6,24 +6,24 @@ import subprocess
 import tempfile
 from typing import Dict, Any
 
-from config import ZDOCK_DIR, ZDOCK_BIN, MARK_SUR_BIN, SCRATCH_DIR
+from config import DOCK_DIR, DOCK_BIN, DOCK_PREP_BIN, SCRATCH_DIR
 
 logger = logging.getLogger(__name__)
 
 MAX_POSES = 2000
 
 
-def _zdock_env():
+def _dock_env():
     """Environment for ZDOCK toolkit subprocesses.
 
-    Prepends ZDOCK_DIR to LD_LIBRARY_PATH so shared libraries shipped next to
+    Prepends DOCK_DIR to LD_LIBRARY_PATH so shared libraries shipped next to
     the binaries are found at runtime — notably ``libg2c.so.0`` (the legacy g77
     runtime) that ``mark_sur`` is linked against and that modern distros no
     longer provide.
     """
     env = os.environ.copy()
     existing = env.get("LD_LIBRARY_PATH", "")
-    env["LD_LIBRARY_PATH"] = ZDOCK_DIR + (os.pathsep + existing if existing else "")
+    env["LD_LIBRARY_PATH"] = DOCK_DIR + (os.pathsep + existing if existing else "")
     return env
 
 
@@ -59,42 +59,42 @@ class DockService:
             receptor_marksur = os.path.join(temp_dir, f"marksur_{os.path.basename(receptor_pdb)}")
             ligand_pdb = os.path.join(iter_dir, "input_batch_01.pdb")
             ligand_marksur = os.path.join(temp_dir, "marksur_ligand_01.pdb")
-            zdock_out = os.path.join(iter_dir, "zdock_batch_01.out")
+            dock_out = os.path.join(iter_dir, "dock_batch_01.out")
 
             await loop.run_in_executor(self.executor, lambda: subprocess.run(
-                [MARK_SUR_BIN, receptor_pdb, receptor_marksur],
-                cwd=ZDOCK_DIR,
-                env=_zdock_env(),
+                [DOCK_PREP_BIN, receptor_pdb, receptor_marksur],
+                cwd=DOCK_DIR,
+                env=_dock_env(),
                 check=True,
                 capture_output=True,
             ))
 
             await loop.run_in_executor(self.executor, lambda: subprocess.run(
-                [MARK_SUR_BIN, ligand_pdb, ligand_marksur],
-                cwd=ZDOCK_DIR,
-                env=_zdock_env(),
+                [DOCK_PREP_BIN, ligand_pdb, ligand_marksur],
+                cwd=DOCK_DIR,
+                env=_dock_env(),
                 check=True,
                 capture_output=True,
             ))
 
             await loop.run_in_executor(self.executor, lambda: subprocess.run(
                 [
-                    ZDOCK_BIN,
+                    DOCK_BIN,
                     "-R", receptor_marksur,
                     "-L", ligand_marksur,
-                    "-o", zdock_out,
+                    "-o", dock_out,
                 ],
-                cwd=ZDOCK_DIR,
-                env=_zdock_env(),
+                cwd=DOCK_DIR,
+                env=_dock_env(),
                 capture_output=True,
             ))
 
-            if not os.path.exists(zdock_out) or os.path.getsize(zdock_out) == 0:
-                raise Exception(f"ZDOCK output not found: {zdock_out}")
+            if not os.path.exists(dock_out) or os.path.getsize(dock_out) == 0:
+                raise Exception(f"ZDOCK output not found: {dock_out}")
 
             result = await self._run_filtering_for_batch(
                 batch_str="01",
-                zdock_output_path=zdock_out,
+                dock_output_path=dock_out,
                 receptor_path=receptor_pdb,
                 ligand_path=ligand_pdb,
                 target_residue=target_residue,
@@ -118,7 +118,7 @@ class DockService:
     async def _run_filtering_for_batch(
         self,
         batch_str: str,
-        zdock_output_path: str,
+        dock_output_path: str,
         receptor_path: str,
         ligand_path: str,
         target_residue: str,
@@ -141,12 +141,12 @@ class DockService:
         try:
             from .filtering import GeometricMeanPoseRanker
 
-            if not os.path.exists(zdock_output_path):
+            if not os.path.exists(dock_output_path):
                 logger.error(f"ZDOCK output not found - Batch {batch_str}")
                 return {"score": 0.0, "ranking": None}
 
             ranker = GeometricMeanPoseRanker(
-                zdock_output_path=zdock_output_path,
+                dock_output_path=dock_output_path,
                 receptor_path=receptor_path,
                 peptide_length=peptide_length,
                 cdr_start_position=cdr_start_position,
@@ -194,7 +194,7 @@ class DockService:
                     shutil.copy(best_pose["pdb_path"], complex_pdb_path)
 
             return {
-                "score": best_pose["zdock_score"] / 1000,
+                "score": best_pose["dock_score"] / 1000,
                 "ranking": best_pose["pose_number"],
             }
 

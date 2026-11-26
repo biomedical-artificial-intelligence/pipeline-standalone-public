@@ -16,9 +16,9 @@ import db
 
 from config import OUTPUT_BASE_DIR
 
-# ZDOCK concurrency = (GPU workers) x ZDOCK_WORKERS_PER_GPU.
+# ZDOCK concurrency = (GPU workers) x DOCK_WORKERS_PER_GPU.
 # AF feeds one fold per GPU, so ZDOCK parallelism scales with the GPU count.
-ZDOCK_WORKERS_PER_GPU = 10
+DOCK_WORKERS_PER_GPU = 10
 
 
 async def run_pipeline(
@@ -34,7 +34,7 @@ async def run_pipeline(
     mode: str = "antibody",
     max_iter: int,
     alpha: float = 0.1,
-    zdock_workers_per_gpu: int = ZDOCK_WORKERS_PER_GPU,
+    dock_workers_per_gpu: int = DOCK_WORKERS_PER_GPU,
     warmup_size: int | None = None,
     early_stop: bool = True,
     warmup_steps: int | None = None,
@@ -44,7 +44,7 @@ async def run_pipeline(
     distance_processes: int = 2,
 ) -> dict:
     n_workers = len(gpu_ids)
-    n_zdock_workers = n_workers * zdock_workers_per_gpu
+    n_dock_workers = n_workers * dock_workers_per_gpu
 
     is_peptide = (mode == "peptide")
     cdr_length = len(initial_cdr)            # peptide: 펩타이드 길이 / antibody: CDR 길이
@@ -66,7 +66,7 @@ async def run_pipeline(
         length=cdr_length,
         max_iter=max_iter,
         alpha=alpha,
-        batch_size=n_zdock_workers,
+        batch_size=n_dock_workers,
     )
 
     output_dir = os.path.join(OUTPUT_BASE_DIR, str(pipeline_id))
@@ -85,13 +85,13 @@ async def run_pipeline(
         f"{mode} pipeline start - ID: {pipeline_id}, "
         f"length: {cdr_length}, cdr_pos={cdr_start}:{cdr_end}, cdr_chain={cdr_chain_id}, "
         f"seed={initial_cdr}, dist_max={dist_thr}, Max iter: {max_iter}, GPUs: {gpu_ids}, "
-        f"ZDOCK workers: {n_zdock_workers}"
+        f"ZDOCK workers: {n_dock_workers}"
     )
 
     fold_service = FoldService()
     # Dedicated thread pool for ZDOCK offload, sized to the semaphore so the
     # default ThreadPoolExecutor(min(32, cpu+4)) does not silently cap parallelism.
-    dock_executor = ThreadPoolExecutor(max_workers=n_zdock_workers)
+    dock_executor = ThreadPoolExecutor(max_workers=n_dock_workers)
     dock_service = DockService(executor=dock_executor, n_processes=distance_processes)
     receptor_path = pdb_name
 
@@ -99,7 +99,7 @@ async def run_pipeline(
         length=cdr_length,
         seed_seq=initial_cdr,
         n_gpu_workers=n_workers,
-        n_zdock_workers=n_zdock_workers,
+        n_dock_workers=n_dock_workers,
         early_stop=early_stop,
         warmup_steps=warmup_steps,
         es_window_size=es_window_size,
@@ -121,13 +121,13 @@ async def run_pipeline(
 
     logger.info(
         f"Warm-up {len(warmup_jobs_all)} seqs (seed 1 + initial {len(warmup_jobs)}), "
-        f"AF workers {n_workers}, ZDOCK workers {n_zdock_workers}"
+        f"AF workers {n_workers}, ZDOCK workers {n_dock_workers}"
     )
 
     af_queue: asyncio.Queue[JobMeta | None] = asyncio.Queue()
     result_queue: asyncio.Queue[tuple] = asyncio.Queue()
-    zdock_sem = asyncio.Semaphore(n_zdock_workers)
-    zdock_tasks: set[asyncio.Task] = set()
+    dock_sem = asyncio.Semaphore(n_dock_workers)
+    dock_tasks: set[asyncio.Task] = set()
     stop_event = asyncio.Event()
 
     jobs_submitted = len(warmup_jobs_all)
@@ -174,9 +174,9 @@ async def run_pipeline(
                     )
                 # Keep a strong reference to the fire-and-forget task (GC could
                 # otherwise cancel it mid-run); drop it on completion.
-                t = asyncio.create_task(zdock_task(job, job_dir))
-                zdock_tasks.add(t)
-                t.add_done_callback(zdock_tasks.discard)
+                t = asyncio.create_task(dock_task(job, job_dir))
+                dock_tasks.add(t)
+                t.add_done_callback(dock_tasks.discard)
             except Exception as e:
                 logger.error(f"AF failed - job {job.job_id}, gpu {worker_gpu_id}: {e}")
                 await result_queue.put((job, job_dir, 0.1, None, None))
@@ -184,8 +184,8 @@ async def run_pipeline(
     # ----------------------------------------------------------------
     # ZDOCK Task
     # ----------------------------------------------------------------
-    async def zdock_task(job: JobMeta, job_dir: str):
-        async with zdock_sem:
+    async def dock_task(job: JobMeta, job_dir: str):
+        async with dock_sem:
             try:
                 result = await dock_service.run_single_dock(
                     job_id=job.job_id,
@@ -310,8 +310,8 @@ async def run_pipeline(
 
         # In-flight zdock tasks may still be running after the updater exits;
         # wait for them before cleaning tmp dirs to avoid an rmtree race.
-        if zdock_tasks:
-            await asyncio.gather(*zdock_tasks, return_exceptions=True)
+        if dock_tasks:
+            await asyncio.gather(*dock_tasks, return_exceptions=True)
 
         for item in os.listdir(output_dir):
             if item.startswith("tmp_"):
@@ -353,8 +353,8 @@ def main():
     parser.add_argument("--gpu_ids",              required=True, help="GPU IDs comma-separated (e.g. 0,1,2)")
     parser.add_argument("--max_iter",             type=int, required=True, help="Max search iterations")
     parser.add_argument("--alpha",                type=float, default=0.1, help="UCB alpha (default: 0.1)")
-    parser.add_argument("--zdock_workers_per_gpu", type=int, default=ZDOCK_WORKERS_PER_GPU,
-                        help=f"ZDOCK workers per GPU (default: {ZDOCK_WORKERS_PER_GPU})")
+    parser.add_argument("--dock_workers_per_gpu", type=int, default=DOCK_WORKERS_PER_GPU,
+                        help=f"ZDOCK workers per GPU (default: {DOCK_WORKERS_PER_GPU})")
     parser.add_argument("--warmup_size", type=int, default=None,
                         help="Number of random warm-up sequences (default: 3 x CDR length). "
                              "Set small (e.g. 2) for a quick end-to-end smoke test.")
@@ -401,7 +401,7 @@ def main():
         mode=args.mode,
         max_iter=args.max_iter,
         alpha=args.alpha,
-        zdock_workers_per_gpu=args.zdock_workers_per_gpu,
+        dock_workers_per_gpu=args.dock_workers_per_gpu,
         warmup_size=args.warmup_size,
         early_stop=args.early_stop,
         warmup_steps=args.warmup_steps,

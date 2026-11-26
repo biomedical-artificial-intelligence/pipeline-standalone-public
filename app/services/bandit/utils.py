@@ -31,7 +31,7 @@ def string_to_index(string):
     return [char_to_index(c) for c in string]
 
 
-def cal_zdock_score_matrix(pvc, length, batch_size):
+def cal_dock_score_matrix(pvc, length, batch_size):
     w_matrix = np.zeros((batch_size, aminoacid_len, length))
     scores = []
     rankings = []

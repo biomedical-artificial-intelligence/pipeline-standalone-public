@@ -25,7 +25,7 @@ DISTANCE_ANTIBODY_BIN=/abs/path/to/distance_antibody    # antibody mode
 DISTANCE_BIN=/abs/path/to/distance                      # peptide mode
 ```
 
-(or place them inside your `ZDOCK_DIR`, the default search location).
+(or place them inside your `DOCK_DIR`, the default search location).
 
 ## Usage (called internally by the pipeline)
 

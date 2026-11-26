@@ -5,7 +5,7 @@
 #
 # NOTE: This installs the PIPELINE's own dependencies only.
 # AlphaFold3 runs in YOUR separate environment — see README / .env.example
-# (ALPHAFOLD_PYTHON, ALPHAFOLD_SCRIPT, ...). It is intentionally NOT listed here.
+# (FOLD_PYTHON, FOLD_SCRIPT, ...). It is intentionally NOT listed here.
 name: pipeline-standalone
 channels:
   - conda-forge

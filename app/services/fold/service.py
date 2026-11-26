@@ -3,7 +3,7 @@ import logging
 import os
 import shutil
 
-from .alphafold_parallel import AlphaFold3ParallelRunner
+from .fold_runner import FoldRunner
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class FoldService:
     """
 
     def __init__(self):
-        self._runner = AlphaFold3ParallelRunner(logger_name="FoldService")
+        self._runner = FoldRunner(logger_name="FoldService")
 
     async def run_single_fold(
         self,

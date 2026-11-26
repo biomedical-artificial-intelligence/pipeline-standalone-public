@@ -24,20 +24,20 @@ except ImportError:
 #   mark_sur  : surface marking preprocessor
 #   distance  : interface-distance helper used during pose filtering
 # ---------------------------------------------------------------------------
-ZDOCK_DIR = os.getenv("ZDOCK_DIR", "/dock")
-ZDOCK_BIN = os.getenv("ZDOCK_BIN", os.path.join(ZDOCK_DIR, "zdock"))
-MARK_SUR_BIN = os.getenv("MARK_SUR_BIN", os.path.join(ZDOCK_DIR, "mark_sur"))
+DOCK_DIR = os.getenv("DOCK_DIR", "/dock")
+DOCK_BIN = os.getenv("DOCK_BIN", os.path.join(DOCK_DIR, "zdock"))
+DOCK_PREP_BIN = os.getenv("DOCK_PREP_BIN", os.path.join(DOCK_DIR, "mark_sur"))
 # Complex-structure generation (part of the ZDOCK distribution).
-CREATE_PL = os.getenv("CREATE_PL", os.path.join(ZDOCK_DIR, "create.pl"))
-CREATE_LIG_BIN = os.getenv("CREATE_LIG_BIN", os.path.join(ZDOCK_DIR, "create_lig"))
+DOCK_CREATE_PL = os.getenv("DOCK_CREATE_PL", os.path.join(DOCK_DIR, "create.pl"))
+DOCK_CREATE_LIG_BIN = os.getenv("DOCK_CREATE_LIG_BIN", os.path.join(DOCK_DIR, "create_lig"))
 # Interface-distance helpers. `distance_antibody` (CDR-region) is used by the
 # antibody pipeline; its Fortran source ships in this repo (recompile with
 # gfortran). `distance` is the peptide variant, kept for completeness.
-DISTANCE_ANTIBODY_BIN = os.getenv("DISTANCE_ANTIBODY_BIN", os.path.join(ZDOCK_DIR, "distance_antibody"))
-DISTANCE_BIN = os.getenv("DISTANCE_BIN", os.path.join(ZDOCK_DIR, "distance"))
+DISTANCE_ANTIBODY_BIN = os.getenv("DISTANCE_ANTIBODY_BIN", os.path.join(DOCK_DIR, "distance_antibody"))
+DISTANCE_BIN = os.getenv("DISTANCE_BIN", os.path.join(DOCK_DIR, "distance"))
 
 # Scratch directory for per-job ZDOCK filtering work (created/removed at runtime).
-SCRATCH_DIR = os.getenv("SCRATCH_DIR", "/tmp/zdock_scratch")
+SCRATCH_DIR = os.getenv("SCRATCH_DIR", "/tmp/dock_scratch")
 
 
 # ---------------------------------------------------------------------------
@@ -52,11 +52,11 @@ OUTPUT_BASE_DIR = os.getenv("OUTPUT_DIR", os.path.join(BASE_PATH, "output"))
 
 # ---------------------------------------------------------------------------
 # External AlphaFold3  (user-installed — NOT bundled with this pipeline)
-#   ALPHAFOLD_PYTHON : python interpreter of YOUR AlphaFold3 environment
-#   ALPHAFOLD_SCRIPT : path to run_alphafold.py
-#   ALPHAFOLD_MODEL_DIR / ALPHAFOLD_DB_DIR : AF3 model weights / databases
+#   FOLD_PYTHON : python interpreter of YOUR AlphaFold3 environment
+#   FOLD_SCRIPT : path to run_alphafold.py
+#   FOLD_MODEL_DIR / FOLD_DB_DIR : AF3 model weights / databases
 # ---------------------------------------------------------------------------
-ALPHAFOLD_PYTHON = os.getenv("ALPHAFOLD_PYTHON", "python")
-ALPHAFOLD_SCRIPT = os.getenv("ALPHAFOLD_SCRIPT", "/alphafold/run_alphafold.py")
-ALPHAFOLD_MODEL_DIR = os.getenv("ALPHAFOLD_MODEL_DIR", "/alphafold/model")
-ALPHAFOLD_DB_DIR = os.getenv("ALPHAFOLD_DB_DIR", "/alphafold/data")
+FOLD_PYTHON = os.getenv("FOLD_PYTHON", "python")
+FOLD_SCRIPT = os.getenv("FOLD_SCRIPT", "/alphafold/run_alphafold.py")
+FOLD_MODEL_DIR = os.getenv("FOLD_MODEL_DIR", "/alphafold/model")
+FOLD_DB_DIR = os.getenv("FOLD_DB_DIR", "/alphafold/data")

@@ -13,7 +13,7 @@ Everything runs from the command line and reads/writes plain files plus a small
 SQLite job database.
 
 > **AlphaFold3 requirement:** the pipeline calls AF3 as a normal subprocess —
-> `"$ALPHAFOLD_PYTHON" "$ALPHAFOLD_SCRIPT" --json_path=… --run_inference=true`.
+> `"$FOLD_PYTHON" "$FOLD_SCRIPT" --json_path=… --run_inference=true`.
 > Your AF3 must be runnable that way (a Python env where `run_alphafold.py`
 > works). Running AF3 only via a Docker image is **not** supported out of the
 > box — run this pipeline *inside* that image, or install AF3 into a venv.
@@ -29,7 +29,7 @@ bandit (propose CDR)  ->  AlphaFold3 (fold 2-chain antibody)  ->  ZDOCK (dock vs
 | Component | What | How the pipeline finds it |
 |-----------|------|----------------------------|
 | **AlphaFold3** | Your own AF3 install (code + model weights + databases) — **you provide this** | `ALPHAFOLD_*` env vars |
-| **ZDOCK 3.0.2** | `zdock`, `mark_sur`, `create.pl`, `create_lig`, `block.pl`, `uniCHARMM` (+ the legacy `libg2c.so.0` that `mark_sur` links against) — **you provide this**, see step 2c | `ZDOCK_DIR` env var |
+| **ZDOCK 3.0.2** | `zdock`, `mark_sur`, `create.pl`, `create_lig`, `block.pl`, `uniCHARMM` (+ the legacy `libg2c.so.0` that `mark_sur` links against) — **you provide this**, see step 2c | `DOCK_DIR` env var |
 | **distance_antibody** | Lab Fortran helper — source ships in `dock_src/`, compile with gfortran | `DISTANCE_ANTIBODY_BIN` env var |
 
 The pipeline's own Python dependencies (numpy, scipy, aiosqlite, PyMOL) are
@@ -57,12 +57,12 @@ gfortran -O2 -o dock_src/distance          dock_src/distance.f            # pept
 
 # 2c. Obtain ZDOCK 3.0.2 yourself from https://zlab.umassmed.edu/zdock/
 #     (free for academic/non-profit use; it is NOT redistributed here).
-#     Unpack it anywhere and point ZDOCK_DIR at that directory with an
+#     Unpack it anywhere and point DOCK_DIR at that directory with an
 #     ABSOLUTE path — the pipeline runs from app/, so a relative path breaks.
 #     mark_sur also needs the legacy libg2c.so.0 next to the binaries; on most
 #     distributions it comes from the compat package for g77 (e.g. libg2c0).
-#     Keep uniCHARMM in ZDOCK_DIR as well: mark_sur reads it from its cwd,
-#     and the pipeline runs mark_sur with cwd=ZDOCK_DIR.
+#     Keep uniCHARMM in DOCK_DIR as well: mark_sur reads it from its cwd,
+#     and the pipeline runs mark_sur with cwd=DOCK_DIR.
 # 2d. Install AlphaFold3 separately (its own environment / Docker image).
 
 # 2e. Fetch the example target structure (chain A of PDB 3WZE, VEGFR-2 kinase
@@ -90,21 +90,21 @@ $EDITOR .env        # fill in the paths
 The variables you must set:
 
 ```bash
-# External AlphaFold3 — must be runnable as: $ALPHAFOLD_PYTHON $ALPHAFOLD_SCRIPT ...
-ALPHAFOLD_PYTHON=/path/to/af3-venv/bin/python
-ALPHAFOLD_SCRIPT=/path/to/alphafold3/run_alphafold.py
-ALPHAFOLD_MODEL_DIR=/path/to/alphafold3/models
-ALPHAFOLD_DB_DIR=/path/to/alphafold3/databases
+# External AlphaFold3 — must be runnable as: $FOLD_PYTHON $FOLD_SCRIPT ...
+FOLD_PYTHON=/path/to/af3-venv/bin/python
+FOLD_SCRIPT=/path/to/alphafold3/run_alphafold.py
+FOLD_MODEL_DIR=/path/to/alphafold3/models
+FOLD_DB_DIR=/path/to/alphafold3/databases
 
 # ZDOCK toolkit you unpacked in step 2c — ABSOLUTE path
-ZDOCK_DIR=/abs/path/to/zdock3.0.2
+DOCK_DIR=/abs/path/to/zdock3.0.2
 
 # Lab Fortran helper built in step 2b — ABSOLUTE path
-DISTANCE_ANTIBODY_BIN=/abs/path/to/pipeline-standalone/dock_src/distance_antibody
+DISTANCE_ANTIBODY_BIN=/abs/path/to/repo/dock_src/distance_antibody
 ```
 
-(`mark_sur` needs the legacy `libg2c.so.0`. Put it in `ZDOCK_DIR` next to the
-binaries — the pipeline prepends `ZDOCK_DIR` to `LD_LIBRARY_PATH` automatically,
+(`mark_sur` needs the legacy `libg2c.so.0`. Put it in `DOCK_DIR` next to the
+binaries — the pipeline prepends `DOCK_DIR` to `LD_LIBRARY_PATH` automatically,
 so nothing else is needed.)
 
 ---
@@ -175,7 +175,7 @@ Antibody-only args (`--fixed_chain_sequence`, `--prefix`, `--suffix`,
 | `--gpu_ids` | Comma-separated GPU ids, one AlphaFold worker per GPU (e.g. `0,1,2`) |
 | `--max_iter` | Maximum search iterations |
 | `--alpha` | Recorded with the run only — does **not** affect the search (see §6) |
-| `--zdock_workers_per_gpu` | ZDOCK parallelism per GPU (default `10`) |
+| `--dock_workers_per_gpu` | ZDOCK parallelism per GPU (default `10`) |
 | `--warmup_size` | Number of random warm-up sequences (default `3 × CDR length`); set small (e.g. `2`) for a quick smoke test |
 | `--warmup_steps` | Search steps excluded from early-stop detection — the initial random-exploration region (default `10 × CDR length`); see §6 |
 | `--early_stop` / `--no_early_stop` | Toggle early stopping on score plateau (default on); see §6 |
@@ -183,7 +183,7 @@ Antibody-only args (`--fixed_chain_sequence`, `--prefix`, `--suffix`,
 | `--distance_processes` | Worker processes for the distance/pose-ranking pool (default `2`) |
 
 > The designed chain sequence given to AlphaFold3 is `prefix + CDR + suffix`.
-> ZDOCK parallelism is `len(gpu_ids) * zdock_workers_per_gpu`.
+> ZDOCK parallelism is `len(gpu_ids) * dock_workers_per_gpu`.
 
 ---
 
@@ -212,7 +212,7 @@ CDR sequences to seed its statistics.
 - **Size** — `--warmup_size N` (default `3 × CDR length`). Each warm-up sequence
   is a full fold+dock, so this dominates start-up time. Use `--warmup_size 2`
   for a smoke test; keep the default (or larger) for a real search.
-- After warm-up the bandit emits `n_zdock_workers × 2` initial search jobs from
+- After warm-up the bandit emits `n_dock_workers × 2` initial search jobs from
   the best warm-up sequence.
 
 ### Exploration → UCB transition
@@ -243,9 +243,9 @@ On by default — stops when the best score plateaus.
 ### Parallelism & CPU usage
 - **GPU / AlphaFold**: one AF worker per id in `--gpu_ids` (folds run in
   parallel, one per GPU).
-- **ZDOCK (CPU-bound)**: `n_zdock_workers = len(gpu_ids) × --zdock_workers_per_gpu`
+- **ZDOCK (CPU-bound)**: `n_dock_workers = len(gpu_ids) × --dock_workers_per_gpu`
   (default 10/GPU). This sizes the docking thread pool — it is the main CPU
-  throttle. Lower `--zdock_workers_per_gpu` if the machine is overloaded, raise
+  throttle. Lower `--dock_workers_per_gpu` if the machine is overloaded, raise
   it to use more cores.
 - **Distance calc**: each pose-ranking step uses a `multiprocessing.Pool` sized
   by **`--distance_processes`** (default 2). Bump it for faster per-job
