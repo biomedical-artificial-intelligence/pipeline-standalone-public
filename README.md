@@ -287,8 +287,35 @@ terms:
 |---|---|---|
 | ZDOCK 3.0.2 | not included | Weng Lab, UMass Chan Medical School. **Free for academic and non-profit use only**; commercial licensing is handled separately by BIOVIA. It is not redistributed here — obtain it from <https://zlab.umassmed.edu/zdock/>. |
 | `libg2c.so.0` | not included | GNU g77 runtime library, required by `mark_sur`. Install it from your distribution's g77 compatibility package. |
-| AlphaFold 3 | not included | You install it yourself; Google DeepMind's model weights and output are subject to their own terms. |
+| AlphaFold 3 | not included | Google DeepMind. The **source code** is CC BY-NC-SA 4.0; the **model parameters** must be requested from Google and are governed by the [AlphaFold 3 Model Parameters Terms of Use](https://github.com/google-deepmind/alphafold3/blob/main/WEIGHTS_TERMS_OF_USE.md). Neither is redistributed here. Nothing in this repository is derived from AlphaFold 3 source code — the pipeline writes AF3 input JSON and invokes `run_alphafold.py` as a subprocess. |
 | PDB structures (e.g. 3WZE) | not included | Fetched from the RCSB PDB at <https://www.rcsb.org/> — see install step 2e. |
 
-If you use ZDOCK, please cite Pierce, Hourai & Weng, *PLoS ONE* 6(9): e24657
-(2011).
+### AlphaFold 3 output
+
+The structures this pipeline predicts are AlphaFold 3 Output. They are governed
+by the [AlphaFold 3 Output Terms of Use](https://github.com/google-deepmind/alphafold3/blob/main/OUTPUT_TERMS_OF_USE.md),
+**not** by the Apache-2.0 license above. In particular:
+
+- Output is for **non-commercial use only**. Under those Terms only
+  non-commercial organizations — universities, non-profit organizations and
+  research institutes, educational, journalism and government bodies — may use
+  it, and Output must not be shared with a commercial organization.
+- If you publish or distribute Output you must give **conspicuous notice** that
+  it is provided under and subject to those Terms, and you must **cite the
+  AlphaFold 3 paper** (see Citation below).
+- Making Output publicly available through a scientific publication or an open
+  source release is expressly permitted by those Terms.
+
+Read the Terms yourself before relying on this summary; it is not legal advice
+and the Terms govern.
+
+## Citation
+
+If you use this pipeline, please cite the tools it depends on:
+
+- **AlphaFold 3** — Abramson, J. *et al.* Accurate structure prediction of
+  biomolecular interactions with AlphaFold 3. *Nature* **630**, 493–500 (2024).
+  <https://doi.org/10.1038/s41586-024-07487-w>
+- **ZDOCK 3.0.2** — Pierce, B. G., Hourai, Y. & Weng, Z. Accelerating protein
+  docking in ZDOCK using an advanced 3D convolution library. *PLoS ONE*
+  **6**(9), e24657 (2011). <https://doi.org/10.1371/journal.pone.0024657>
