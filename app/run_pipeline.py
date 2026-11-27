@@ -47,9 +47,9 @@ async def run_pipeline(
     n_dock_workers = n_workers * dock_workers_per_gpu
 
     is_peptide = (mode == "peptide")
-    cdr_length = len(initial_cdr)            # peptide: 펩타이드 길이 / antibody: CDR 길이
+    cdr_length = len(initial_cdr)            # peptide: peptide length / antibody: CDR length
     if is_peptide:
-        # 펩타이드는 CDR 범위 없음 → filtering이 distance(chain P, 1..N) 경로로 분기.
+        # Peptide mode has no CDR range, so filtering uses the distance(chain P, 1..N) path.
         cdr_start = None
         cdr_end = None
         dist_thr = 15.0
@@ -372,7 +372,7 @@ def main():
                         help="Number of random warm-up sequences (default: 3 x CDR length). "
                              "Set small (e.g. 2) for a quick end-to-end smoke test.")
     # ── Search / bandit tuning ───────────────────────────────────────────
-    # NOTE: UCB random→guided 전환 시점은 이제 내부 고정값 random_phase_steps=10*N.
+    # NOTE: the UCB random -> guided switch is fixed internally at random_phase_steps=10*N.
     parser.add_argument("--early_stop", dest="early_stop", action="store_true", default=True,
                         help="Enable early stopping on score plateau (default: on).")
     parser.add_argument("--no_early_stop", dest="early_stop", action="store_false",
@@ -395,10 +395,10 @@ def main():
 
     if args.mode == "antibody":
         if not args.fixed_chain_sequence or not args.selected_chain_type:
-            parser.error("--fixed_chain_sequence 와 --selected_chain_type 는 antibody 모드에서 필수입니다.")
+            parser.error("--fixed_chain_sequence and --selected_chain_type are required in antibody mode.")
         cdr_chain_id = "L" if "Light" in args.selected_chain_type else "H"
         fixed_chain_sequence = args.fixed_chain_sequence
-    else:  # peptide: 단일 체인, fixed chain/prefix/suffix 미사용. ligand 체인은 내부적으로 "P".
+    else:  # peptide: single chain, no fixed chain/prefix/suffix. The ligand chain is "P" internally.
         cdr_chain_id = "P"
         fixed_chain_sequence = ""
 

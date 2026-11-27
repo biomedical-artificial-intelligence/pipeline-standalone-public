@@ -62,7 +62,7 @@ def init_ucb_param(length: int, iter: int = 0) -> UCB:
     uconf = ucb_config()
     uconf.N = length
     uconf.mus = np.zeros((aminoacid_len, uconf.N))
-    # [FIX-v2 A] ucbs 낙관적 초기화(미시도 arm 우선 탐색). [FIX-v2 D] sigma_t 제거.
+    # [FIX-v2 A] Optimistic ucbs init so untried arms get explored first. [FIX-v2 D] sigma_t removed.
     uconf.ucbs = np.full((aminoacid_len, uconf.N), OPTIMISTIC_UCB)
     uconf.times = np.zeros((aminoacid_len, uconf.N))
     uconf.delta = 0.5

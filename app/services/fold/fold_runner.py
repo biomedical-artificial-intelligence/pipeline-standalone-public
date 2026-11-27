@@ -8,8 +8,8 @@ import logging
 
 class FoldRunner:
     """
-    AlphaFold3 직접 실행 runner.
-    Docker-in-Docker 없이 컨테이너 내부에서 run_alphafold.py를 직접 subprocess로 호출.
+    Direct AlphaFold3 runner.
+    Calls run_alphafold.py as a plain subprocess, without Docker-in-Docker.
     """
 
     def __init__(self, logger_name=None):

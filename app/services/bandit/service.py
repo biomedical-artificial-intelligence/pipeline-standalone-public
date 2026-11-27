@@ -23,7 +23,7 @@ MAX_RESAMPLE = 100
 
 @dataclass
 class JobMeta:
-    """AF → ZDOCK 파이프라인을 통과하는 단일 job 메타데이터"""
+    """Metadata for a single job passing through the fold → dock pipeline."""
     job_id: int
     seq: str
     is_warmup: bool
@@ -35,17 +35,18 @@ class JobMeta:
 
 class BanditStreamService:
     """
-    UCB 스트리밍 학습 서비스.
+    Streaming UCB learning service.
 
     Warm-up phase:
-    - seed_seq: update_from_sequence() - 전체 서열 기반 업데이트
-    - 초기 3N: update_from_mutations() - seed 대비 mutation 위치만 업데이트
-    - warm-up 전체 완료 후 best 서열 기준으로 n_dock_workers * 2개 초기 search job 반환
+    - seed_seq: update_from_sequence() - update from the whole sequence
+    - initial 3N: update_from_mutations() - update only positions mutated from the seed
+    - once warm-up is complete, return n_dock_workers * 2 initial search jobs built
+      from the best sequence
 
     Search phase:
-    - seq_meta로 (select, aa) 저장하여 out-of-order update 안전 처리
-    - UCB 1-site mutation 탐색 (iter 10*N부터 UCB 전환)
-    - top-K pool 기반 base 서열 선택 (80% best, 20% pool random)
+    - (select, aa) is kept in seq_meta so out-of-order updates stay correct
+    - UCB 1-site mutation search (UCB takes over from iter 10*N)
+    - base sequence drawn from the top-K pool (80% best, 20% random from the pool)
     """
 
     def __init__(
@@ -62,8 +63,8 @@ class BanditStreamService:
         es_patience_windows: int = 5,
         es_buffer_windows: int = 2,
         es_adaptive_buffer: bool = True,
-        # [detector pass-through] 스케일 둔감 임계 모드. 기본값은 현행(absolute)이라
-        # 동작 변화 없음. resume/실험에서 normalized/relative로 바꾸려면 값만 넘기면 됨.
+        # [detector pass-through] scale-insensitive threshold mode. The default is
+        # absolute, so behaviour is unchanged; pass normalized/relative to switch.
         es_eps_mode: str = "absolute",
         es_relative_eps: float = 0.1,
         es_scale: float | None = None,
@@ -75,7 +76,7 @@ class BanditStreamService:
         self.seed_idx = string_to_index(seed_seq)
         self.n_gpu_workers = n_gpu_workers
         self.n_dock_workers = n_dock_workers
-        # [early-stop warmup] 초기 랜덤 탐색 구간(=UCB random_phase=10*N) 제외.
+        # [early-stop warmup] exclude the initial random-search phase (= UCB random_phase = 10*N).
         self.warmup_steps = warmup_steps if warmup_steps is not None else 10 * length
 
         self.existing_seqs: set = set()
@@ -116,7 +117,7 @@ class BanditStreamService:
         return self._stopper is not None and self._stopper.should_stop()
 
     def register_seed(self) -> JobMeta:
-        """seed 시퀀스 등록"""
+        """Register the seed sequence."""
         self.existing_seqs.add(self.seed_seq)
         self.warmup_total += 1
         return JobMeta(
@@ -127,7 +128,7 @@ class BanditStreamService:
         )
 
     def register_initial_seqs(self, seqs: list) -> list[JobMeta]:
-        """초기 3N 시퀀스 등록"""
+        """Register the initial 3N sequences."""
         jobs = []
         for seq in seqs:
             self.existing_seqs.add(seq)
@@ -142,12 +143,12 @@ class BanditStreamService:
 
     @staticmethod
     def _infer_select_aa(rec: dict, parent_seq: Optional[str], seq: str):
-        """히스토리 레코드에서 (select, aa) 역추론.
-        mutated_position/mutated_aa 필드 우선, 없으면 parent_seq와 diff."""
+        """Infer (select, aa) from a history record.
+        Prefers the mutated_position/mutated_aa fields, else diffs against parent_seq."""
         pos = rec.get("mutated_position")
         maa = rec.get("mutated_aa")
         if pos is not None and maa in aminoacid:
-            return int(pos) - 1, aminoacid.index(maa)  # mutated_position은 1-based
+            return int(pos) - 1, aminoacid.index(maa)  # mutated_position is 1-based
         if parent_seq and len(parent_seq) == len(seq):
             for i, (p, c) in enumerate(zip(parent_seq, seq)):
                 if p != c and c in aminoacid:
@@ -156,14 +157,16 @@ class BanditStreamService:
 
     def restore_from_history(self, history: list[dict]) -> int:
         """
-        search-phase 히스토리(iter 오름차순, iter당 1서열)를 replay해 상태 복원.
+        Restore state by replaying the search-phase history (ascending iter, one
+        sequence per iter).
 
-        - warm-up(seed + 초기 3N)은 DB/파일에 미저장 → 생략. seed-aa 셀(~5%)만 미세
-          영향(times=0으로 보여 resume 직후 몇 step 재탐색)이라 무시 가능.
-        - detector(_stopper)에는 과거 점수를 주입하지 않는다 → fresh 윈도우로 시작해
-          이어붙인 새 구간을 스스로 판단(즉시 재종료 방지).
+        - warm-up (seed + initial 3N) is not persisted to the DB or to files, so it is
+          skipped. Only the seed-aa cells (~5%) are affected: they read as untried
+          (times=0), costing a few re-explored steps right after resume.
+        - past scores are not fed to the detector (_stopper); it starts on a fresh
+          window and judges the appended stretch on its own (no immediate re-stop).
 
-        Returns: 복원된 iter_count.
+        Returns: the restored iter_count.
         """
         self.warmup_complete = True
         self.warmup_done = self.warmup_total
@@ -177,7 +180,7 @@ class BanditStreamService:
             parent_seq = rec.get("parent_seq")
             norm = normalize_score(score)
 
-            # 생성 시점에 t가 advance되던 것 모사(ucb bonus의 t 의존성 반영)
+            # Mimic the t advance that happened at generation time (ucb bonus depends on t)
             self.M.t += 1
 
             sel_aa = self._infer_select_aa(rec, parent_seq, seq)
@@ -185,7 +188,7 @@ class BanditStreamService:
                 self.M.select, self.M.aa = sel_aa
                 self.M.update(norm)
             else:
-                # parent 불명(예외) → 전체 서열 기반 업데이트로 폴백
+                # Unknown parent → fall back to a whole-sequence update
                 self.M.update_from_sequence(norm, string_to_index(seq))
 
             if score > self.best_score:
@@ -196,7 +199,7 @@ class BanditStreamService:
             self.existing_seqs.add(seq)
             self.iter_count += 1
 
-        # 이후 select_ac_one이 random_phase가 아닌 UCB 모드로 동작하도록 t 보정
+        # Bump t so select_ac_one runs in UCB mode rather than the random phase
         self.M.t = max(self.M.t, self.iter_count, self.M.random_phase_steps + 1)
 
         logger.info(
@@ -206,7 +209,7 @@ class BanditStreamService:
         return self.iter_count
 
     def _add_to_top_k(self, score: float, seq: str):
-        """top-K pool에 추가. K개 초과 시 최저 스코어 제거."""
+        """Add to the top-K pool, evicting the lowest score once it exceeds K."""
         if len(self._top_k_pool) < self._TOP_K:
             heapq.heappush(self._top_k_pool, (score, seq))
         elif score > self._top_k_pool[0][0]:
@@ -214,8 +217,8 @@ class BanditStreamService:
 
     def _pick_base_from_pool(self) -> str:
         """
-        top-K pool에서 base 서열 선택.
-        80% 확률로 best, 20% 확률로 pool 내 랜덤 선택 (exploration).
+        Pick the base sequence from the top-K pool:
+        best with probability 80%, a random pool entry with 20% (exploration).
         """
         if not self._top_k_pool or random.random() < 0.8:
             return self.best_seq
@@ -223,13 +226,13 @@ class BanditStreamService:
 
     def on_result(self, job: JobMeta, score: float) -> list[JobMeta]:
         """
-        ZDOCK 결과 수신 시 호출 (Updater에서 직렬로 호출).
+        Called when a docking result arrives (serially, from the Updater).
 
         Returns:
             list[JobMeta]:
-                - warm-up 진행 중: []
-                - warm-up 완료 시: n_dock_workers * 2개의 초기 search job
-                - search phase: 다음 job 1개
+                - warm-up in progress: []
+                - warm-up just completed: n_dock_workers * 2 initial search jobs
+                - search phase: the next single job
         """
         norm_score = normalize_score(score)
 
@@ -256,13 +259,13 @@ class BanditStreamService:
 
             if self.warmup_done == self.warmup_total:
                 self.warmup_complete = True
-                self.M.t = 1  # warmup t 리셋
+                self.M.t = 1  # reset t after warm-up
                 logger.info(
                     f"Warm-up complete ({self.warmup_total}) - "
                     f"best={self.best_score:.4f}, best_seq={self.best_seq}"
                 )
                 initial_jobs = [self._make_next_job(self.best_seq) for _ in range(self.n_dock_workers * 2)]
-                self.M.t = 1  # 초기 60개 생성 후 t 리셋 → iter 10*N부터 UCB 전환
+                self.M.t = 1  # reset t after the initial batch → UCB takes over at iter 10*N
                 return initial_jobs
 
             return []
@@ -277,7 +280,7 @@ class BanditStreamService:
         self.M.update(norm_score)
 
         if self._stopper is not None:
-            # BreakpointDetector가 내부에서 warmup_steps 구간을 제외한다.
+            # BreakpointDetector excludes the warmup_steps range internally.
             self._stopper.update(score)
 
         logger.info(

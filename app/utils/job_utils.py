@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class JobFileUtils:
-    """파이프라인 파일 시스템 작업 유틸"""
+    """Filesystem helpers for pipeline jobs."""
 
     @staticmethod
     def save_warmup_sequences(

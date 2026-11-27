@@ -1,49 +1,50 @@
 """
 breakpoint_detector.py
 
-UCB 기반 도킹 시뮬레이션용 '조기 종료(중단점) 탐지' 로직만 분리한 독립 모듈.
-시뮬레이션/시각화 코드와 무관하게 실제 탐색 루프에 바로 끼워 쓸 수 있다.
+Breakpoint (early-stop) detection for the UCB docking search loop.
 
-구성:
-  - core 판단기      : early_stopping.EarlyStopper (수정하지 않는 원본 로직)
-  - 본 모듈이 추가    : (1) 초기 랜덤 탐색 구간 제외(warm-up)
-                        (2) 스코어 스케일에 둔감한 임계 모드 (absolute / relative / normalized)
+Layers:
+  - core decision logic : early_stopping.EarlyStopper (used unmodified)
+  - added here          : (1) warm-up exclusion for the initial random-search phase
+                          (2) scale-insensitive thresholds (absolute / relative / normalized)
 
-의존성: 표준 라이브러리만 사용 (numpy 불필요).
+Standard library only (no numpy).
 
 ────────────────────────────────────────────────────────────────────
-임계(slope_eps) 스케일 문제
-  EarlyStopper의 slope_eps는 '이동평균의 기울기(절대값)'에 대한 임계다.
-  스코어 스케일이 데이터마다 다르면(예: 합성 진폭 ~10  vs  실측 도킹 평균 ~1.0,
-  이동평균 변동폭 ~0.05) 동일한 slope_eps가 한쪽에선 적정, 다른 쪽에선 과도하게 커
-  '정체'로 오판 → 조기 종료가 트리거된다.
+Threshold (slope_eps) scale problem
+  EarlyStopper's slope_eps is a threshold on the absolute slope of the moving
+  average. Score scales differ between datasets (synthetic amplitude ~10 vs a
+  measured docking mean ~1.0 whose moving average moves by ~0.05), so one
+  slope_eps that fits the first is far too large for the second, and a plateau
+  is detected where there is none → early stop fires.
 
-  이를 해결하기 위해 eps_mode 옵션 제공:
-    - "absolute"   : slope_eps를 그대로 사용 (기존 동작, 기본값)
-    - "relative"   : slope_eps를 데이터 스케일에 비례시켜 자동 산출
+  eps_mode handles this:
+    - "absolute"   : use slope_eps as given (legacy behaviour, default)
+    - "relative"   : derive it from the data scale
                      eff_eps = relative_eps × (scale / sqrt(window_size))
-                     scale = 스코어 표준편차(warm-up 또는 명시값)
-    - "normalized" : 스코어를 (x - center) / scale 로 정규화해 판단기에 주입
-                     → slope_eps가 스케일 불변(정규화 표준편차 ≈ 1 기준)
+                     scale = score standard deviation (warm-up or explicit)
+    - "normalized" : feed (x - center) / scale to the detector, which makes
+                     slope_eps scale-invariant (normalized std ≈ 1)
 
-  scale/center는 warm-up 구간 샘플로 자동 보정하거나(online),
-  scale=/center= 인자로 직접 지정할 수 있다(offline: 전체 배열 통계 사용 권장).
+  scale/center are calibrated from warm-up samples (online) or passed in
+  explicitly (offline: whole-array statistics recommended).
 ────────────────────────────────────────────────────────────────────
 
-규약
-  - 스코어는 '높을수록 좋음' (도킹 스코어, best_avg 최대 추적과 일치).
-  - warm-up: UCB 초기 N step은 추세 없는 랜덤 탐색 구간이므로 중단점 탐색에서 제외.
+Conventions
+  - Higher scores are better (docking score, matching best_avg tracking).
+  - warm-up: the first N UCB steps are trendless random search, so they are
+    excluded from detection.
 
-사용 (온라인 — 실측처럼 스케일이 작은 데이터: normalized 권장):
+Online use (small-scale real data: normalized recommended):
     from breakpoint_detector import BreakpointDetector
     det = BreakpointDetector(window_size=100, warmup_steps=500,
-                             eps_mode="normalized")     # warm-up으로 자동 스케일 보정
+                             eps_mode="normalized")     # auto-calibrated from warm-up
     for step in range(max_steps):
         score = run_ucb_dock_step(...)
         if det.update(score):
-            print("조기 종료:", det.reason()); break
+            print("early stop:", det.reason()); break
 
-사용 (오프라인):
+Offline use:
     from breakpoint_detector import find_breakpoint
     out = find_breakpoint(scores, warmup_steps=500, eps_mode="relative", relative_eps=0.1)
     print(out["stop_step"], out["effective_slope_eps"])
@@ -69,25 +70,25 @@ _MODES = (ABSOLUTE, RELATIVE, NORMALIZED)
 
 class BreakpointDetector:
     """
-    EarlyStopper에 warm-up(초기 랜덤 탐색 제외) + 스케일 둔감 임계 모드를 더한 중단점 탐지기.
+    EarlyStopper plus warm-up exclusion and scale-insensitive thresholds.
 
-    파라미터
-        window_size      (W)  : rolling avg/std 윈도우 크기            (기본 100)
-        slope_horizon    (SH) : 기울기 비교 거리 배수. H = SH × W      (기본 3)
-        slope_eps        (ε)  : 의미 있는 개선의 최소값                (기본 0.01)
-                                · eps_mode="absolute"  → 그대로 사용
-                                · eps_mode="normalized"→ 정규화(std≈1) 스케일에서의 ε
-        patience_windows (PW) : patience 허용 배수. P = PW × W         (기본 5)
-        buffer_windows   (BW) : 안전 버퍼 기본 길이 배수. buf = BW × W (기본 2)
-        adaptive_buffer       : rolling_std 기반 버퍼 동적 연장        (기본 True)
-        warmup_steps     (N)  : 초기 랜덤 탐색 제외 구간 길이          (기본 500)
+    Parameters
+        window_size      (W)  : rolling avg/std window size             (default 100)
+        slope_horizon    (SH) : slope comparison distance. H = SH × W    (default 3)
+        slope_eps        (ε)  : minimum meaningful improvement           (default 0.01)
+                                · eps_mode="absolute"  → used as given
+                                · eps_mode="normalized"→ ε on the normalized (std≈1) scale
+        patience_windows (PW) : patience allowance. P = PW × W           (default 5)
+        buffer_windows   (BW) : safety buffer base length. buf = BW × W  (default 2)
+        adaptive_buffer       : extend the buffer from rolling_std       (default True)
+        warmup_steps     (N)  : length of the excluded random-search run (default 500)
 
-      스케일 둔감 옵션:
-        eps_mode              : "absolute" | "relative" | "normalized"  (기본 "absolute")
-        relative_eps          : eps_mode="relative"일 때 비례계수        (기본 0.1)
-        scale                 : 스케일(표준편차) 직접 지정. None이면 warm-up으로 보정
-        center                : 중심(평균) 직접 지정. None이면 warm-up으로 보정
-        min_calibration       : warm-up 보정에 필요한 최소 샘플 수       (기본 30)
+      Scale-insensitive options:
+        eps_mode              : "absolute" | "relative" | "normalized"  (default "absolute")
+        relative_eps          : factor used when eps_mode="relative"     (default 0.1)
+        scale                 : data scale (std). None → calibrate from warm-up
+        center                : data center (mean). None → calibrate from warm-up
+        min_calibration       : minimum samples needed to calibrate      (default 30)
     """
 
     def __init__(
@@ -116,7 +117,7 @@ class BreakpointDetector:
         self.relative_eps = relative_eps
         self.min_calibration = min_calibration
 
-        # EarlyStopper 생성 인자(slope_eps는 모드에 따라 보정 후 확정)
+        # EarlyStopper kwargs (slope_eps is finalized after calibration)
         self._es_kwargs = dict(
             window_size=window_size,
             slope_horizon=slope_horizon,
@@ -130,27 +131,27 @@ class BreakpointDetector:
 
         self._user_scale = scale
         self._user_center = center
-        self._scale = 1.0           # 정규화/상대임계에 쓰는 데이터 스케일
+        self._scale = 1.0           # data scale used by relative/normalized modes
         self._center = 0.0
         self.effective_slope_eps = slope_eps
 
-        self._warm: list[float] = []   # warm-up 보정용 raw 샘플
+        self._warm: list[float] = []   # raw warm-up samples for calibration
         self._step = 0
         self._stop_step: Optional[int] = None
 
-        # absolute 모드는 보정이 필요 없으므로 즉시 판단기 생성.
-        # relative/normalized 모드는 warm-up 종료 시점에 보정 후 생성(지연).
+        # absolute needs no calibration, so build the detector right away.
+        # relative/normalized build it after warm-up calibration.
         self._stopper: Optional[EarlyStopper] = None
         if eps_mode == ABSOLUTE and scale is None and center is None:
             self._stopper = EarlyStopper(**self._es_kwargs)
-        # scale/center가 명시되면 absolute에서도 변환만 적용(보통 불필요)
+        # With explicit scale/center, absolute still applies the transform (rarely needed)
 
     # ──────────────────────────────────────────────────────────────
-    # 내부: 스케일 보정 + 판단기 생성
+    # Internal: scale calibration + detector construction
     # ──────────────────────────────────────────────────────────────
     def _calibrate_and_build(self) -> None:
-        """warm-up 종료 시점(또는 즉시) 1회 호출. scale/center 확정 후 EarlyStopper 생성."""
-        # 스케일/중심 결정: 명시값 우선, 없으면 warm-up 샘플로 추정
+        """Called once at the end of warm-up (or immediately): fix scale/center, build EarlyStopper."""
+        # Explicit scale/center wins, otherwise estimate from warm-up samples
         if self._user_scale is not None:
             scale = float(self._user_scale)
             center = float(self._user_center) if self._user_center is not None else 0.0
@@ -158,45 +159,45 @@ class BreakpointDetector:
             center = fmean(self._warm)
             scale = pstdev(self._warm)
         else:
-            # 보정 표본 부족 → absolute로 안전하게 폴백
+            # Too few calibration samples → fall back to absolute
             logger.warning(
-                "[BreakpointDetector] 보정 표본 부족(%d < %d) → eps_mode=absolute로 폴백",
+                "[BreakpointDetector] too few calibration samples (%d < %d) → eps_mode=absolute",
                 len(self._warm), self.min_calibration,
             )
             self.eps_mode = ABSOLUTE
             center, scale = 0.0, 1.0
 
         if not scale or scale <= 0 or math.isnan(scale):
-            scale = 1.0   # 분산 0 등 예외 방어
+            scale = 1.0   # guard against zero variance
 
         self._center, self._scale = center, scale
         kw = dict(self._es_kwargs)
 
         if self.eps_mode == RELATIVE:
-            # 이동평균 기울기의 자연 단위 ≈ scale / sqrt(W)
+            # Natural unit of the moving-average slope ≈ scale / sqrt(W)
             kw["slope_eps"] = self.relative_eps * scale / math.sqrt(self._window_size)
         elif self.eps_mode == NORMALIZED:
-            # 정규화(std≈1) 스케일에서 base slope_eps 그대로 적용
+            # On the normalized (std≈1) scale, base slope_eps applies as is
             kw["slope_eps"] = self._base_slope_eps
-        # absolute: base 그대로
+        # absolute: base as is
 
         self.effective_slope_eps = kw["slope_eps"]
         self._stopper = EarlyStopper(**kw)
 
     def _transform(self, score: float) -> float:
-        """normalized 모드에서만 (x - center)/scale 적용. 그 외엔 원값."""
+        """Apply (x - center)/scale in normalized mode only, else return the raw value."""
         if self.eps_mode == NORMALIZED:
             return (score - self._center) / self._scale
         return score
 
     # ──────────────────────────────────────────────────────────────
-    # 온라인 API
+    # Online API
     # ──────────────────────────────────────────────────────────────
     def update(self, score: float) -> bool:
         """
-        스코어 1개를 입력하고 '지금 종료해야 하는가'를 반환한다.
-        warm-up 구간(첫 N 스텝)의 점수는 탐지에 사용하지 않고 항상 False를 반환하되,
-        relative/normalized 모드에선 이 구간 표본으로 스케일을 보정한다.
+        Feed one score and return whether the search should stop now.
+        Warm-up scores (the first N steps) are not used for detection and always
+        return False, but relative/normalized modes calibrate the scale from them.
         """
         i = self._step
         self._step += 1
@@ -204,10 +205,10 @@ class BreakpointDetector:
 
         if i < self.warmup_steps:
             if self.eps_mode != ABSOLUTE and self._user_scale is None:
-                self._warm.append(score)     # 스케일 보정용 수집
+                self._warm.append(score)     # collected for calibration
             return False
 
-        # 첫 탐지 스텝에서 판단기 미생성 상태면 보정 후 생성
+        # On the first detection step, calibrate and build if not built yet
         if self._stopper is None:
             self._calibrate_and_build()
 
@@ -228,7 +229,7 @@ class BreakpointDetector:
 
     @property
     def stop_step(self) -> Optional[int]:
-        """종료가 확정된 절대 스텝 인덱스(미종료면 None)."""
+        """Absolute step index where the stop was confirmed (None if not stopped)."""
         return self._stop_step
 
     @property
@@ -236,7 +237,7 @@ class BreakpointDetector:
         return self._step
 
     def stats(self) -> dict:
-        """EarlyStopper 내부 통계 + warm-up/스케일/임계 정보."""
+        """EarlyStopper internals plus warm-up / scale / threshold info."""
         s = dict(self._stopper.stats()) if self._stopper is not None else {}
         s.update(
             warmup_steps=self.warmup_steps,
@@ -267,15 +268,16 @@ def find_breakpoint(
     center: Optional[float] = None,
 ) -> dict:
     """
-    이미 가진 점수 시퀀스에서 중단점을 한 번에 찾는 오프라인 헬퍼.
-    종료가 확정되면 즉시 순회를 멈춘다.
+    Offline helper: find the breakpoint of a score sequence in one pass.
+    Iteration stops as soon as the stop is confirmed.
 
     calibrate:
-        "auto"/"global" : relative/normalized 모드에서 scale/center를 '전체 배열' 통계로
-                          계산해 사용(견고, 오프라인 기본). scale=/center=가 주어지면 그 값 우선.
-        "warmup"        : warm-up 구간 표본으로만 보정(온라인과 동일 동작).
+        "auto"/"global" : in relative/normalized modes, compute scale/center from
+                          whole-array statistics (robust, the offline default).
+                          Explicit scale=/center= take precedence.
+        "warmup"        : calibrate from warm-up samples only (same as online).
 
-    반환 dict: stop_step, stopped, phase, reason, effective_slope_eps, scale, center, stats
+    Returns dict: stop_step, stopped, phase, reason, effective_slope_eps, scale, center, stats
     """
     seq = [float(x) for x in scores]
 
@@ -313,7 +315,7 @@ def find_breakpoint(
 
 
 if __name__ == "__main__":
-    # 데모: 스케일이 작은(평균~1.0, 진폭~0.05) 데이터에서 모드별 거동 비교
+    # Demo: compare the modes on small-scale data (mean ~1.0, amplitude ~0.05)
     import math as _m
     import random
 
@@ -326,7 +328,7 @@ if __name__ == "__main__":
         else:
             base = 1.00 + 0.05 * (1.0 - _m.exp(-(t - warmup) / ((t_conv - warmup) / 4)))
             base = min(base, 1.05)
-        demo.append(base + random.gauss(0, 0.10))   # 진폭이 큰 노이즈, 작은 추세
+        demo.append(base + random.gauss(0, 0.10))   # large noise, small trend
 
     for mode in ("absolute", "relative", "normalized"):
         out = find_breakpoint(demo, warmup_steps=warmup, window_size=100, eps_mode=mode)

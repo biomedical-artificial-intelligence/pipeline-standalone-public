@@ -200,7 +200,7 @@ class GeometricMeanPoseRanker:
         self.cdr_chain_id = cdr_chain_id
         self.DOCK_MIN = 0.5
         self.DOCK_MAX = 3.0
-        # proximity 정규화 스케일. antibody=50.0, peptide=15.0 (mode별 주입).
+        # Proximity normalization scale: antibody=50.0, peptide=15.0 (injected per mode).
         self.DISTANCE_MAX = distance_max
         self.n_processes = n_processes
 
