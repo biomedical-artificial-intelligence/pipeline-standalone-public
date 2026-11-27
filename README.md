@@ -274,6 +274,8 @@ UCB exploration constant is internal. Leave it at the default.
 
 ## License
 
+Copyright 2026 Samsung Medical Center.
+
 This project is licensed under the Apache License 2.0 — see the
 [LICENSE](LICENSE) file for details.
 
